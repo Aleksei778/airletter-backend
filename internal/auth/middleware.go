@@ -1,58 +1,41 @@
 package auth
 
 import (
+	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 )
 
-func RequireRefreshToken(authService *Service) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		var rawToken string
+const ctxUserID = "user_id"
 
-		cookie, err := c.Cookie("refresh_jwt_token")
-		if err == nil {
-			rawToken = cookie
-		} else {
-			rawToken = c.GetHeader("Authorization")
+// RequireAccessToken authenticates by the Authorization header (extension)
+// or the access cookie (website).
+func RequireAccessToken(svc *Service) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		tokenStr := bearer(c.GetHeader("Authorization"))
+		if tokenStr == "" {
+			if cookie, err := c.Cookie(accessCookie); err == nil {
+				tokenStr = bearer(cookie)
+			}
 		}
 
-		tokenStr := strings.TrimPrefix(rawToken, "Bearer ")
-
-		claims, err := authService.VerifyRefreshToken(tokenStr)
+		claims, err := svc.VerifyAccessToken(tokenStr)
 		if err != nil {
-			c.AbortWithStatusJSON(401, gin.H{"error": "Invalid refresh token"})
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid access token"})
 			return
 		}
 
-		c.Set("refresh_token", claims)
-		c.Set("user_id", claims.UserID)
-
+		c.Set(ctxUserID, claims.UserID)
 		c.Next()
 	}
 }
 
-func RequireAccessToken(authService *Service) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		var rawToken string
-		cookie, err := c.Cookie("access_jwt_token")
-		if err == nil {
-			rawToken = cookie
-		} else {
-			rawToken = c.GetHeader("Authorization")
-		}
+// CurrentUserID returns the authenticated user ID set by RequireAccessToken
+func CurrentUserID(c *gin.Context) uint {
+	return c.GetUint(ctxUserID)
+}
 
-		tokenStr := strings.TrimPrefix(rawToken, "Bearer ")
-
-		claims, err := authService.VerifyAccessToken(tokenStr)
-		if err != nil {
-			c.AbortWithStatusJSON(401, gin.H{"error": "Invalid access token"})
-			return
-		}
-
-		c.Set("access_token", claims)
-		c.Set("user_id", claims.UserID)
-
-		c.Next()
-	}
+func bearer(v string) string {
+	return strings.TrimSpace(strings.TrimPrefix(v, "Bearer "))
 }
