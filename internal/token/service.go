@@ -2,15 +2,19 @@ package token
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sync"
+
 	"quicksend/internal/config"
-	"quicksend/internal/user"
-	"time"
 
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"gorm.io/gorm"
 )
+
+// ErrNoToken means the user never granted offline access (or it was removed)
+var ErrNoToken = errors.New("token: google token not found")
 
 type Service struct {
 	db   *gorm.DB
@@ -22,84 +26,104 @@ func NewService(db *gorm.DB, repo *Repository, cfg *config.Config) *Service {
 	return &Service{db: db, repo: repo, cfg: cfg}
 }
 
-func (svc *Service) RefreshToken(ctx context.Context, token *Token) error {
-	if token == nil || token.Refresh == "" {
-		return fmt.Errorf("token: refresh token is missing")
+// IsReauthRequired reports whether the error means the user has to log in again:
+// refresh token revoked/expired or never stored.
+func IsReauthRequired(err error) bool {
+	if errors.Is(err, ErrNoToken) {
+		return true
+	}
+	var re *oauth2.RetrieveError
+	if errors.As(err, &re) {
+		return re.ErrorCode == "invalid_grant" || re.ErrorCode == "unauthorized_client"
+	}
+	return false
+}
+
+// TokenSource returns an auto-refreshing token source for the user.
+// Refreshed access tokens are persisted; the refresh token is kept unless Google rotates it.
+func (svc *Service) TokenSource(ctx context.Context, userID uint) (oauth2.TokenSource, error) {
+	t, err := svc.repo.FindByUserID(userID)
+	if err != nil {
+		return nil, fmt.Errorf("token: find: %w", err)
+	}
+	if t == nil || t.Refresh == "" {
+		return nil, ErrNoToken
 	}
 
+	initial := &oauth2.Token{AccessToken: t.Access, RefreshToken: t.Refresh, Expiry: t.Expiry}
 	oauthCfg := &oauth2.Config{
 		ClientID:     svc.cfg.GoogleClientID,
 		ClientSecret: svc.cfg.GoogleClientSecret,
 		Endpoint:     google.Endpoint,
 	}
 
-	oauthToken := &oauth2.Token{
-		RefreshToken: token.Refresh,
-	}
-
-	newToken, err := oauthCfg.TokenSource(ctx, oauthToken).Token()
-	if err != nil {
-		return fmt.Errorf("token: %w", err)
-	}
-
-	token.Access = newToken.AccessToken
-	token.Refresh = newToken.RefreshToken
-
-	if err := svc.db.WithContext(ctx).Save(token).Error; err != nil {
-		return fmt.Errorf("google_token_service:RefreshToken: failed to save token: %w", err)
-	}
-
-	return nil
+	return &persistingSource{
+		base: oauth2.ReuseTokenSource(initial, oauthCfg.TokenSource(ctx, initial)),
+		svc:  svc,
+		tok:  t,
+	}, nil
 }
 
-func (svc *Service) FindOrCreate(dto FindOrCreate) (*Token, error) {
-	token, err := svc.FindByUser(dto.User)
+type persistingSource struct {
+	mu   sync.Mutex
+	base oauth2.TokenSource
+	svc  *Service
+	tok  *Token
+}
 
+func (p *persistingSource) Token() (*oauth2.Token, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	t, err := p.base.Token()
 	if err != nil {
 		return nil, err
 	}
 
-	if token == nil {
-		return svc.create(dto)
+	if t.AccessToken != p.tok.Access {
+		p.tok.Access = t.AccessToken
+		p.tok.Expiry = t.Expiry
+		if t.RefreshToken != "" {
+			p.tok.Refresh = t.RefreshToken
+		}
+		if err := p.svc.db.Save(p.tok).Error; err != nil {
+			return nil, fmt.Errorf("token: save refreshed token: %w", err)
+		}
 	}
 
-	token.Access = dto.Access
-	token.Refresh = dto.Refresh
-	token.Expiry = dto.Expiry
+	return t, nil
+}
 
-	if err := svc.db.Save(token).Error; err != nil {
+// Upsert stores tokens received on login. An empty refresh token does not
+// overwrite the stored one: Google returns it only on the first consent.
+func (svc *Service) Upsert(dto FindOrCreate) (*Token, error) {
+	t, err := svc.repo.FindByUserID(dto.User.ID)
+	if err != nil {
 		return nil, err
 	}
 
-	return token, nil
-}
-
-func (svc *Service) create(dto FindOrCreate) (*Token, error) {
-	token := &Token{
-		UserID:  dto.User.ID,
-		Access:  dto.Access,
-		Refresh: dto.Refresh,
-		Expiry:  dto.Expiry,
+	if t == nil {
+		t = &Token{UserID: dto.User.ID}
 	}
 
-	if err := svc.db.Create(token).Error; err != nil {
+	t.Access = dto.Access
+	t.Expiry = dto.Expiry
+	if dto.Refresh != "" {
+		t.Refresh = dto.Refresh
+	}
+
+	if err := svc.db.Save(t).Error; err != nil {
 		return nil, err
 	}
 
-	return token, nil
+	return t, nil
 }
 
-func (svc *Service) FindByUser(u *user.User) (*Token, error) {
-	return svc.repo.FindByUser(u)
-}
-
-func (svc *Service) update(access string, expiry time.Time, token *Token) (*Token, error) {
-	token.Access = access
-	token.Expiry = expiry
-
-	if err := svc.db.Save(token).Error; err != nil {
-		return nil, err
+// HasRefreshToken reports whether offline access is already stored for the user
+func (svc *Service) HasRefreshToken(userID uint) (bool, error) {
+	t, err := svc.repo.FindByUserID(userID)
+	if err != nil {
+		return false, err
 	}
-
-	return token, nil
+	return t != nil && t.Refresh != "", nil
 }
