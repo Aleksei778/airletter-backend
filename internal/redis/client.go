@@ -48,10 +48,20 @@ func (c *Client) IncrDailySentCount(ctx context.Context, userID uint) error {
 	}
 
 	if newVal == 1 {
-		c.rdb.Expire(ctx, key, 24*time.Hour)
+		// the key is per UTC day, keep it a bit longer than a day
+		c.rdb.Expire(ctx, key, 48*time.Hour)
 	}
 
 	return nil
+}
+
+// Raw exposes the underlying client for other Redis-backed stores
+func (c *Client) Raw() *redis.Client {
+	return c.rdb
+}
+
+func (c *Client) Close() error {
+	return c.rdb.Close()
 }
 
 func dailyKey(userID uint) string {
