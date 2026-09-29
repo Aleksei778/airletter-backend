@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 
+	"quicksend/internal/campaign"
 	"quicksend/internal/config"
 	"quicksend/internal/crypto"
 	"quicksend/internal/db"
@@ -16,6 +17,7 @@ import (
 	"quicksend/internal/token"
 	"quicksend/internal/user"
 
+	"github.com/hibiken/asynq"
 	"gorm.io/gorm"
 )
 
@@ -23,10 +25,12 @@ type App struct {
 	Cfg   *config.Config
 	DB    *gorm.DB
 	Redis *redis.Client
+	Queue *asynq.Client
 
 	Users         *user.Service
 	Tokens        *token.Service
 	Subscriptions *subscription.Service
+	Campaigns     *campaign.Repository
 }
 
 func New(cfg *config.Config) (*App, error) {
@@ -49,13 +53,20 @@ func New(cfg *config.Config) (*App, error) {
 		return nil, err
 	}
 
+	redisOpt, err := asynq.ParseRedisURI(cfg.RedisURL)
+	if err != nil {
+		return nil, fmt.Errorf("app: parse redis url: %w", err)
+	}
+
 	return &App{
 		Cfg:           cfg,
 		DB:            gdb,
 		Redis:         rdb,
+		Queue:         asynq.NewClient(redisOpt),
 		Users:         user.NewService(gdb, user.NewRepository(gdb)),
 		Tokens:        token.NewService(gdb, token.NewRepository(gdb), cfg),
 		Subscriptions: subscription.NewService(subscription.NewRepository(gdb)),
+		Campaigns:     campaign.NewRepository(gdb),
 	}, nil
 }
 
@@ -66,10 +77,16 @@ func Models() []any {
 		&token.Token{},
 		&subscription.Subscription{},
 		&models.Payment{},
+		&campaign.Campaign{},
+		&campaign.Recipient{},
+		&campaign.Attachment{},
 	}
 }
 
 func (a *App) Close() {
+	if err := a.Queue.Close(); err != nil {
+		slog.Error("app: close queue client", "err", err)
+	}
 	if err := a.Redis.Close(); err != nil {
 		slog.Error("app: close redis", "err", err)
 	}
