@@ -127,3 +127,15 @@ func (svc *Service) HasRefreshToken(userID uint) (bool, error) {
 	}
 	return t != nil && t.Refresh != "", nil
 }
+
+// Invalidate forgets the stored Google grant after it was revoked, so the next
+// login asks for consent again and Google issues a new refresh token.
+func (svc *Service) Invalidate(userID uint) error {
+	t, err := svc.repo.FindByUserID(userID)
+	if err != nil || t == nil {
+		return err
+	}
+	t.Access = ""
+	t.Refresh = ""
+	return svc.db.Save(t).Error
+}
