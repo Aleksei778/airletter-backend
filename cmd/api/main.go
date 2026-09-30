@@ -39,10 +39,12 @@ func main() {
 	defer a.Close()
 	defer sentry.Flush(2 * time.Second)
 
-	// only the API migrates, so API and worker don't race on schema changes
-	if err := db.Migrate(a.DB, app.Models()...); err != nil {
-		slog.Error("migrate", "err", err)
-		return
+	// only the API migrates; the worker expects the schema to be in place
+	if cfg.MigrateOnStart {
+		if err := db.MigrateUp(cfg); err != nil {
+			slog.Error("migrate", "err", err)
+			return
+		}
 	}
 
 	authStore := auth.NewStore(a.Redis.Raw(), time.Duration(cfg.JWTRefreshExpDays)*24*time.Hour)

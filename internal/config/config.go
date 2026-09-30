@@ -13,6 +13,8 @@ type Config struct {
 	DBName string `env:"DB_NAME,required"`
 	DBUser string `env:"DB_USER,required"`
 	DBPass string `env:"DB_PASS,required"`
+	// Apply SQL migrations when the API starts; turn off to run them separately (make migrate-up)
+	MigrateOnStart bool `env:"MIGRATE_ON_START" envDefault:"true"`
 
 	// Redis
 	RedisURL string `env:"REDIS_URL,required"`
