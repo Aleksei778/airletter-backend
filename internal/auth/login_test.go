@@ -12,27 +12,14 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-func TestParseLogin(t *testing.T) {
-	tests := []struct {
-		in   string
-		kind LoginKind
-		want string
-	}{
-		{" Ivan@Example.COM ", LoginEmail, "ivan@example.com"},
-		{"8 (916) 123-45-67", LoginPhone, "+79161234567"},
-		{"79161234567", LoginPhone, "+79161234567"},
-		{"+49 151 23456789", LoginPhone, "+4915123456789"},
-	}
-	for _, tt := range tests {
-		kind, got, err := ParseLogin(tt.in)
-		if err != nil || kind != tt.kind || got != tt.want {
-			t.Errorf("ParseLogin(%q) = %v %q %v, want %v %q", tt.in, kind, got, err, tt.kind, tt.want)
-		}
+func TestParseEmail(t *testing.T) {
+	if got, err := ParseEmail(" Ivan@Example.COM "); err != nil || got != "ivan@example.com" {
+		t.Errorf("ParseEmail = %q %v, want ivan@example.com", got, err)
 	}
 
-	for _, bad := range []string{"", "ivan", "ivan@localhost", "Ivan <ivan@example.com>", "12345", "+0123456789"} {
-		if _, _, err := ParseLogin(bad); !errors.Is(err, ErrInvalidLogin) {
-			t.Errorf("ParseLogin(%q): got %v, want ErrInvalidLogin", bad, err)
+	for _, bad := range []string{"", "ivan", "ivan@localhost", "Ivan <ivan@example.com>", "+79161234567"} {
+		if _, err := ParseEmail(bad); !errors.Is(err, ErrInvalidEmail) {
+			t.Errorf("ParseEmail(%q): got %v, want ErrInvalidEmail", bad, err)
 		}
 	}
 }
@@ -63,26 +50,26 @@ func TestRegisterAndLogin(t *testing.T) {
 	svc, trials := newPasswordService(t)
 	ctx := context.Background()
 
-	u, err := svc.Register(ctx, RegisterInput{Login: "8 916 123 45 67", Password: "correct horse", Name: "Иван"})
+	u, err := svc.Register(ctx, RegisterInput{Email: "Ivan@Example.com", Password: "correct horse", Name: "Иван"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if u.Phone != "+79161234567" || u.PasswordHash == "correct horse" {
+	if u.Email != "ivan@example.com" || u.PasswordHash == "correct horse" {
 		t.Fatalf("user not normalized or password stored in plain text: %+v", u)
 	}
 	if len(trials.created) != 1 {
 		t.Errorf("trial not created on sign-up")
 	}
 
-	if _, err := svc.Register(ctx, RegisterInput{Login: "+79161234567", Password: "another one"}); err == nil {
-		t.Error("duplicate phone registered")
+	if _, err := svc.Register(ctx, RegisterInput{Email: "ivan@example.com", Password: "another one"}); err == nil {
+		t.Error("duplicate email registered")
 	}
 
-	got, err := svc.Login(ctx, "+7 916 123-45-67", "correct horse", "1.1.1.1")
+	got, err := svc.Login(ctx, "IVAN@example.com", "correct horse", "1.1.1.1")
 	if err != nil || got.ID != u.ID {
 		t.Fatalf("login: %v %v", got, err)
 	}
-	if _, err := svc.Login(ctx, "+79161234567", "wrong password", "1.1.1.1"); !errors.Is(err, ErrInvalidCredentials) {
+	if _, err := svc.Login(ctx, "ivan@example.com", "wrong password", "1.1.1.1"); !errors.Is(err, ErrInvalidCredentials) {
 		t.Errorf("wrong password: %v", err)
 	}
 	if _, err := svc.Login(ctx, "nobody@example.com", "whatever1", "1.1.1.1"); !errors.Is(err, ErrInvalidCredentials) {
@@ -93,7 +80,7 @@ func TestRegisterAndLogin(t *testing.T) {
 func TestLoginThrottling(t *testing.T) {
 	svc, _ := newPasswordService(t)
 	ctx := context.Background()
-	if _, err := svc.Register(ctx, RegisterInput{Login: "a@example.com", Password: "correct horse"}); err != nil {
+	if _, err := svc.Register(ctx, RegisterInput{Email: "a@example.com", Password: "correct horse"}); err != nil {
 		t.Fatal(err)
 	}
 

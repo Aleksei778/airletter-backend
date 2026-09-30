@@ -220,7 +220,6 @@ func (h *handler) me(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"email":       u.Email,
-		"phone":       u.Phone,
 		"first_name":  u.FirstName,
 		"last_name":   u.LastName,
 		"picture_url": u.PictureUrl,
