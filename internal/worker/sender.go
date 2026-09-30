@@ -68,7 +68,17 @@ func (s *Sender) Handle(ctx context.Context, t *asynq.Task) error {
 		return fmt.Errorf("sender: find user %d: %v", c.UserID, err)
 	}
 
-	raw, err := mailer.Build(buildMessage(c, u, rec.Email))
+	// From must be the connected Gmail address: Gmail rewrites any other one
+	acc, err := s.tokens.GoogleAccount(u.ID)
+	if err != nil {
+		return fmt.Errorf("sender: google account: %w", err)
+	}
+	from := acc.Email
+	if from == "" {
+		from = u.Email
+	}
+
+	raw, err := mailer.Build(buildMessage(c, from, rec.Email))
 	if err != nil {
 		_ = s.campaigns.MarkFailed(ctx, rec.ID, "build message: "+err.Error())
 		return fmt.Errorf("sender: build message: %v: %w", err, asynq.SkipRetry)
@@ -119,14 +129,14 @@ func (s *Sender) handleSendError(ctx context.Context, sendErr error, userID, rec
 	}
 }
 
-func buildMessage(c *campaign.Campaign, u *user.User, to string) mailer.Message {
+func buildMessage(c *campaign.Campaign, from, to string) mailer.Message {
 	attachments := make([]mailer.Attachment, len(c.Attachments))
 	for i, a := range c.Attachments {
 		attachments[i] = mailer.Attachment{Filename: a.Filename, MimeType: a.MimeType, Content: a.Content}
 	}
 
 	return mailer.Message{
-		From:        mail.Address{Name: c.SenderName, Address: u.Email},
+		From:        mail.Address{Name: c.SenderName, Address: from},
 		To:          to,
 		Subject:     c.Subject,
 		HTML:        c.Body,
