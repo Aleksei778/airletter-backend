@@ -5,11 +5,11 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 
 	"quicksend/internal/config"
-	"quicksend/internal/subscription"
 	"quicksend/internal/token"
 	usermod "quicksend/internal/user"
 
@@ -17,13 +17,6 @@ import (
 	"golang.org/x/oauth2/google"
 	googleoauth "google.golang.org/api/oauth2/v2"
 	"google.golang.org/api/option"
-)
-
-type Source string
-
-const (
-	SourceWebsite   Source = "website"
-	SourceExtension Source = "extension"
 )
 
 const gmailSendScope = "https://www.googleapis.com/auth/gmail.send"
@@ -35,138 +28,197 @@ var (
 )
 
 type userService interface {
-	FindOrCreate(dto usermod.FindOrCreate) (*usermod.User, error)
+	Create(dto usermod.Create) (*usermod.User, error)
 	FindByID(id uint) (*usermod.User, error)
+	FindByEmail(email string) (*usermod.User, error)
+	FindByPhone(phone string) (*usermod.User, error)
+	FillProfile(id uint, firstName, lastName, picture string) error
 }
 
-// GrantHook is called after the user granted (or re-granted) Google access
+type trialCreator interface {
+	CreateTrial(u *usermod.User) error
+}
+
+// GrantHook is called after the user connected (or reconnected) Google
 type GrantHook func(ctx context.Context, userID uint) error
 
 type Service struct {
-	cfg             *config.Config
-	userSvc         userService
-	tokenSvc        *token.Service
-	subscriptionSvc *subscription.Service
-	store           *Store
-	onGrant         []GrantHook
+	cfg      *config.Config
+	userSvc  userService
+	tokenSvc *token.Service
+	trials   trialCreator
+	store    *Store
+	onGrant  []GrantHook
 }
 
 func NewService(
 	cfg *config.Config,
 	userSvc userService,
 	tokenSvc *token.Service,
-	subscriptionSvc *subscription.Service,
+	trials trialCreator,
 	store *Store,
 ) *Service {
-	return &Service{
-		cfg:             cfg,
-		userSvc:         userSvc,
-		tokenSvc:        tokenSvc,
-		subscriptionSvc: subscriptionSvc,
-		store:           store,
-	}
+	return &Service{cfg: cfg, userSvc: userSvc, tokenSvc: tokenSvc, trials: trials, store: store}
 }
 
-// OnGrant registers a hook run after a successful extension login
+// OnGrant registers a hook run after Google access is granted
 func (s *Service) OnGrant(h GrantHook) {
 	s.onGrant = append(s.onGrant, h)
 }
 
-func (s *Service) oauthConfig(source Source) *oauth2.Config {
-	scopes := s.cfg.WebsiteScopes
-	if source == SourceExtension {
-		scopes = s.cfg.ExtensionScopes
+// ---- email / phone + password ----
+
+type RegisterInput struct {
+	Login    string
+	Password string
+	Name     string
+}
+
+// Register creates an account and starts the free trial
+func (s *Service) Register(ctx context.Context, in RegisterInput) (*usermod.User, error) {
+	kind, login, err := ParseLogin(in.Login)
+	if err != nil {
+		return nil, err
+	}
+	hash, err := HashPassword(in.Password)
+	if err != nil {
+		return nil, err
 	}
 
+	dto := usermod.Create{PasswordHash: hash, FirstName: in.Name}
+	if kind == LoginEmail {
+		dto.Email = login
+	} else {
+		dto.Phone = login
+	}
+
+	u, err := s.userSvc.Create(dto)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.trials.CreateTrial(u); err != nil {
+		// the account exists; a missing trial is visible and fixable, a failed sign-up is not
+		slog.Error("auth: create trial", "err", err, "user_id", u.ID)
+	}
+	return u, nil
+}
+
+// Login checks the password. Failed attempts are limited per login and per IP.
+func (s *Service) Login(ctx context.Context, rawLogin, password, ip string) (*usermod.User, error) {
+	kind, login, err := ParseLogin(rawLogin)
+	if err != nil {
+		return nil, ErrInvalidCredentials
+	}
+
+	blocked, err := s.store.TooManyFailures(ctx, login, ip)
+	if err != nil {
+		return nil, fmt.Errorf("auth: check attempts: %w", err)
+	}
+	if blocked {
+		return nil, ErrTooManyAttempts
+	}
+
+	var u *usermod.User
+	if kind == LoginEmail {
+		u, err = s.userSvc.FindByEmail(login)
+	} else {
+		u, err = s.userSvc.FindByPhone(login)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("auth: find user: %w", err)
+	}
+
+	hash := ""
+	if u != nil {
+		hash = u.PasswordHash
+	}
+	if !checkPassword(hash, password) {
+		s.store.RecordFailure(ctx, login, ip)
+		return nil, ErrInvalidCredentials
+	}
+
+	s.store.ResetFailures(ctx, login)
+	return u, nil
+}
+
+// ---- Google as an integration: permission to send via Gmail ----
+
+func (s *Service) oauthConfig() *oauth2.Config {
 	return &oauth2.Config{
 		ClientID:     s.cfg.GoogleClientID,
 		ClientSecret: s.cfg.GoogleClientSecret,
 		RedirectURL:  s.cfg.GoogleRedirectURI(),
-		Scopes:       scopes,
+		Scopes:       s.cfg.ExtensionScopes,
 		Endpoint:     google.Endpoint,
 	}
 }
 
-// AuthCodeURL builds the Google consent URL. forceConsent is needed to
-// receive a refresh token when Google has already been granted access before.
-func (s *Service) AuthCodeURL(source Source, state string, forceConsent bool) string {
+// GoogleAuthURL builds the consent URL. forceConsent is needed to receive a
+// refresh token when the account has already granted access before.
+func (s *Service) GoogleAuthURL(state string, forceConsent bool) string {
 	prompt := "select_account"
 	if forceConsent {
 		prompt = "consent"
 	}
-
-	opts := []oauth2.AuthCodeOption{oauth2.SetAuthURLParam("prompt", prompt)}
-	if source == SourceExtension {
-		opts = append(opts, oauth2.AccessTypeOffline)
-	}
-
-	return s.oauthConfig(source).AuthCodeURL(state, opts...)
+	return s.oauthConfig().AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.SetAuthURLParam("prompt", prompt))
 }
 
-// CompleteLogin exchanges the code, creates/updates the user and, for the
-// extension, stores Google tokens and starts the trial.
-func (s *Service) CompleteLogin(ctx context.Context, source Source, code string) (*usermod.User, error) {
-	oauthToken, err := s.oauthConfig(source).Exchange(ctx, code)
+// ConnectGoogle exchanges the code and stores the grant for the user
+func (s *Service) ConnectGoogle(ctx context.Context, userID uint, code string) error {
+	oauthToken, err := s.oauthConfig().Exchange(ctx, code)
 	if err != nil {
-		return nil, fmt.Errorf("auth: exchange code: %w", err)
+		return fmt.Errorf("auth: exchange code: %w", err)
 	}
 
-	info, err := s.userInfo(ctx, oauthToken)
-	if err != nil {
-		return nil, fmt.Errorf("auth: user info: %w", err)
-	}
-
-	u, err := s.userSvc.FindOrCreate(usermod.FindOrCreate{
-		Email:      strings.ToLower(info.Email),
-		FirstName:  info.GivenName,
-		LastName:   info.FamilyName,
-		PictureUrl: info.Picture,
-		OauthID:    info.Id,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("auth: find or create user: %w", err)
-	}
-
-	if source != SourceExtension {
-		return u, nil
-	}
-
-	// Users can uncheck individual scopes on the consent screen
+	// users can uncheck individual scopes on the consent screen
 	if !hasScope(oauthToken, gmailSendScope) {
-		return nil, ErrMissingScopes
+		return ErrMissingScopes
 	}
 
 	if oauthToken.RefreshToken == "" {
-		has, err := s.tokenSvc.HasRefreshToken(u.ID)
+		has, err := s.tokenSvc.HasRefreshToken(userID)
 		if err != nil {
-			return nil, fmt.Errorf("auth: check refresh token: %w", err)
+			return fmt.Errorf("auth: check refresh token: %w", err)
 		}
 		if !has {
-			return nil, ErrConsentRequired
+			return ErrConsentRequired
 		}
+	}
+
+	info, err := userInfo(ctx, oauthToken)
+	if err != nil {
+		return fmt.Errorf("auth: user info: %w", err)
 	}
 
 	if _, err := s.tokenSvc.Upsert(token.FindOrCreate{
-		User:    u,
-		Access:  oauthToken.AccessToken,
-		Refresh: oauthToken.RefreshToken,
-		Expiry:  oauthToken.Expiry,
+		UserID:      userID,
+		Access:      oauthToken.AccessToken,
+		Refresh:     oauthToken.RefreshToken,
+		Expiry:      oauthToken.Expiry,
+		GoogleSub:   info.Id,
+		GoogleEmail: strings.ToLower(info.Email),
 	}); err != nil {
-		return nil, fmt.Errorf("auth: save google token: %w", err)
+		return fmt.Errorf("auth: save google token: %w", err)
 	}
 
-	if err := s.subscriptionSvc.CreateTrial(u); err != nil {
-		return nil, err
+	if err := s.userSvc.FillProfile(userID, info.GivenName, info.FamilyName, info.Picture); err != nil {
+		slog.Error("auth: fill profile", "err", err, "user_id", userID)
 	}
 
 	for _, h := range s.onGrant {
-		if err := h(ctx, u.ID); err != nil {
-			return nil, fmt.Errorf("auth: grant hook: %w", err)
+		if err := h(ctx, userID); err != nil {
+			return fmt.Errorf("auth: grant hook: %w", err)
 		}
 	}
-
-	return u, nil
+	return nil
 }
+
+func (s *Service) HasGoogle(userID uint) (bool, error) {
+	return s.tokenSvc.HasRefreshToken(userID)
+}
+
+// ---- one-time codes for the extension ----
 
 // NewLoginCode creates a one-time code the extension exchanges for JWTs
 func (s *Service) NewLoginCode(ctx context.Context, userID uint) (string, error) {
@@ -198,7 +250,7 @@ func (s *Service) ExchangeLoginCode(ctx context.Context, code string) (*TokenPai
 	return s.IssuePair(ctx, u)
 }
 
-func (s *Service) userInfo(ctx context.Context, t *oauth2.Token) (*googleoauth.Userinfo, error) {
+func userInfo(ctx context.Context, t *oauth2.Token) (*googleoauth.Userinfo, error) {
 	svc, err := googleoauth.NewService(ctx, option.WithTokenSource(oauth2.StaticTokenSource(t)))
 	if err != nil {
 		return nil, err

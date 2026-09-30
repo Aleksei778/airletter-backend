@@ -83,3 +83,39 @@ func (s *Store) ConsumeLoginCode(ctx context.Context, code string) (uint, bool, 
 	}
 	return uint(val), true, nil
 }
+
+const (
+	attemptsWindow  = 15 * time.Minute
+	maxLoginFails   = 10 // per login
+	maxAddressFails = 50 // per IP, covers password spraying across logins
+)
+
+func failKey(kind, value string) string { return "auth:fail:" + kind + ":" + value }
+
+// TooManyFailures reports whether sign-in is blocked for the login or the IP
+func (s *Store) TooManyFailures(ctx context.Context, login, ip string) (bool, error) {
+	counts, err := s.rdb.MGet(ctx, failKey("login", login), failKey("ip", ip)).Result()
+	if err != nil {
+		return false, err
+	}
+	return atoi(counts[0]) >= maxLoginFails || atoi(counts[1]) >= maxAddressFails, nil
+}
+
+func (s *Store) RecordFailure(ctx context.Context, login, ip string) {
+	pipe := s.rdb.TxPipeline()
+	for _, k := range []string{failKey("login", login), failKey("ip", ip)} {
+		pipe.Incr(ctx, k)
+		pipe.ExpireNX(ctx, k, attemptsWindow)
+	}
+	_, _ = pipe.Exec(ctx)
+}
+
+func (s *Store) ResetFailures(ctx context.Context, login string) {
+	s.rdb.Del(ctx, failKey("login", login))
+}
+
+func atoi(v any) int {
+	str, _ := v.(string)
+	n, _ := strconv.Atoi(str)
+	return n
+}

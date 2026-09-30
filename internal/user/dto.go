@@ -1,9 +1,8 @@
 package user
 
-type FindOrCreate struct {
-	Email      string
-	FirstName  string
-	LastName   string
-	PictureUrl string
-	OauthID    string
+type Create struct {
+	Email        string
+	Phone        string
+	PasswordHash string
+	FirstName    string
 }
