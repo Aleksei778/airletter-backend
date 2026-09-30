@@ -15,6 +15,7 @@ import (
 
 	"quicksend/internal/app"
 	"quicksend/internal/auth"
+	"quicksend/internal/billing"
 	"quicksend/internal/campaign"
 	"quicksend/internal/config"
 	"quicksend/internal/db"
@@ -58,11 +59,19 @@ func main() {
 	campaignSvc := campaign.NewService(a.Campaigns, a.Subscriptions, a.Tokens, cfg, trigger)
 	sheetsSvc := sheets.NewService(a.Tokens)
 
+	billingSvc := billing.NewService(a.DB, cfg)
+	slog.Info("payment providers", "enabled", billingSvc.Providers())
+	// a paid plan continues campaigns that stopped when the previous one ended
+	billingSvc.OnPaid(func(ctx context.Context, userID uint) error {
+		return a.Campaigns.ResumeUser(ctx, userID, campaign.PauseNoSubscription)
+	})
+
 	srv := &http.Server{
 		Addr: ":" + cfg.Port,
 		Handler: httpapi.NewRouter(a, authSvc,
-			func(r *gin.RouterGroup) { campaign.RegisterRoutes(r, campaignSvc, a.Users, auth.CurrentUserID) },
-			func(r *gin.RouterGroup) { sheets.RegisterRoutes(r, sheetsSvc, auth.CurrentUserID) },
+			func(_, r *gin.RouterGroup) { campaign.RegisterRoutes(r, campaignSvc, a.Users, auth.CurrentUserID) },
+			func(_, r *gin.RouterGroup) { sheets.RegisterRoutes(r, sheetsSvc, auth.CurrentUserID) },
+			func(pub, r *gin.RouterGroup) { billing.RegisterRoutes(pub, r, billingSvc, a.Users, auth.CurrentUserID) },
 		),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
