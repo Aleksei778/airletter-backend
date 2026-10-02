@@ -130,16 +130,23 @@ func (s *Sender) handleSendError(ctx context.Context, sendErr error, userID, rec
 }
 
 func buildMessage(c *campaign.Campaign, from, to string) mailer.Message {
-	attachments := make([]mailer.Attachment, len(c.Attachments))
-	for i, a := range c.Attachments {
-		attachments[i] = mailer.Attachment{Filename: a.Filename, MimeType: a.MimeType, Content: a.Content}
+	m := mailer.Message{
+		From:    mail.Address{Name: c.SenderName, Address: from},
+		To:      to,
+		Subject: c.Subject,
+	}
+	if c.BodyFormat == campaign.FormatText {
+		m.Text = c.Body
+	} else {
+		m.HTML = c.Body
 	}
 
-	return mailer.Message{
-		From:        mail.Address{Name: c.SenderName, Address: from},
-		To:          to,
-		Subject:     c.Subject,
-		HTML:        c.Body,
-		Attachments: attachments,
+	for _, a := range c.Attachments {
+		if a.ContentID != "" && m.HTML != "" {
+			m.Inline = append(m.Inline, mailer.Inline{ContentID: a.ContentID, Filename: a.Filename, MimeType: a.MimeType, Content: a.Content})
+			continue
+		}
+		m.Attachments = append(m.Attachments, mailer.Attachment{Filename: a.Filename, MimeType: a.MimeType, Content: a.Content})
 	}
+	return m
 }

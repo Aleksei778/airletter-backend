@@ -18,6 +18,13 @@ const (
 	StatusCancelled Status = "cancelled"
 )
 
+type BodyFormat string
+
+const (
+	FormatHTML BodyFormat = "html"
+	FormatText BodyFormat = "text"
+)
+
 type RecipientStatus string
 
 const (
@@ -40,11 +47,12 @@ type Campaign struct {
 	UserID      uint      `gorm:"not null;index"`
 	User        user.User `gorm:"foreignKey:UserID"`
 	SenderName  string
-	Subject     string    `gorm:"not null"`
-	Body        string    `gorm:"type:text;not null"` // HTML
-	Status      Status    `gorm:"type:varchar(16);not null;index"`
-	PauseReason string    `gorm:"type:varchar(32)"`
-	ScheduledAt time.Time `gorm:"not null;index"`
+	Subject     string     `gorm:"not null"`
+	Body        string     `gorm:"type:text;not null"` // HTML or plain text, see BodyFormat
+	BodyFormat  BodyFormat `gorm:"type:varchar(8);not null;default:'html'"`
+	Status      Status     `gorm:"type:varchar(16);not null;index"`
+	PauseReason string     `gorm:"type:varchar(32)"`
+	ScheduledAt time.Time  `gorm:"not null;index"`
 	StartedAt   *time.Time
 	FinishedAt  *time.Time
 	Recipients  []Recipient  `gorm:"foreignKey:CampaignID"`
@@ -73,7 +81,9 @@ type Attachment struct {
 	MimeType   string `gorm:"not null;default:'application/octet-stream'"`
 	Size       int64  `gorm:"not null"`
 	Content    []byte `gorm:"type:bytea;not null"`
-	CreatedAt  time.Time
+	// non-empty for images shown inside the HTML body (<img src="cid:...">)
+	ContentID string
+	CreatedAt time.Time
 }
 
 // Stats is a per-status count of recipients
