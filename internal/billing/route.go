@@ -68,6 +68,9 @@ func (h *handler) create(c *gin.Context) {
 	case errors.Is(err, ErrUnknownPlan), errors.Is(err, ErrUnknownProvider):
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
 		return
+	case errors.Is(err, ErrPlanActive):
+		c.JSON(http.StatusConflict, gin.H{"error": "this plan is already active", "code": "plan_active"})
+		return
 	case err != nil:
 		slog.Error("billing: create", "err", err, "user_id", u.ID)
 		c.JSON(http.StatusBadGateway, gin.H{"error": "payment provider is unavailable"})

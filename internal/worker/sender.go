@@ -25,10 +25,12 @@ type Sender struct {
 	tokens    *token.Service
 	gmail     *gmail.Service
 	redis     *redis.Client
+	// public site address for the trial footer link
+	siteURL string
 }
 
-func NewSender(campaigns *campaign.Repository, users *user.Service, tokens *token.Service, gm *gmail.Service, rdb *redis.Client) *Sender {
-	return &Sender{campaigns: campaigns, users: users, tokens: tokens, gmail: gm, redis: rdb}
+func NewSender(campaigns *campaign.Repository, users *user.Service, tokens *token.Service, gm *gmail.Service, rdb *redis.Client, siteURL string) *Sender {
+	return &Sender{campaigns: campaigns, users: users, tokens: tokens, gmail: gm, redis: rdb, siteURL: siteURL}
 }
 
 func (s *Sender) Handle(ctx context.Context, t *asynq.Task) error {
@@ -78,7 +80,7 @@ func (s *Sender) Handle(ctx context.Context, t *asynq.Task) error {
 		from = u.Email
 	}
 
-	raw, err := mailer.Build(buildMessage(c, from, rec.Email))
+	raw, err := mailer.Build(buildMessage(c, from, rec.Email, s.siteURL))
 	if err != nil {
 		_ = s.campaigns.MarkFailed(ctx, rec.ID, "build message: "+err.Error())
 		return fmt.Errorf("sender: build message: %v: %w", err, asynq.SkipRetry)
@@ -129,7 +131,7 @@ func (s *Sender) handleSendError(ctx context.Context, sendErr error, userID, rec
 	}
 }
 
-func buildMessage(c *campaign.Campaign, from, to string) mailer.Message {
+func buildMessage(c *campaign.Campaign, from, to, siteURL string) mailer.Message {
 	m := mailer.Message{
 		From:    mail.Address{Name: c.SenderName, Address: from},
 		To:      to,
@@ -147,6 +149,9 @@ func buildMessage(c *campaign.Campaign, from, to string) mailer.Message {
 			continue
 		}
 		m.Attachments = append(m.Attachments, mailer.Attachment{Filename: a.Filename, MimeType: a.MimeType, Content: a.Content})
+	}
+	if c.Branded {
+		addFooter(&m, c.Locale, siteURL)
 	}
 	return m
 }

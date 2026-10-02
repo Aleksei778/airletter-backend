@@ -15,7 +15,11 @@ import (
 	"gorm.io/gorm"
 )
 
-var ErrNotFound = errors.New("billing: payment not found")
+var (
+	ErrNotFound = errors.New("billing: payment not found")
+	// ErrPlanActive: the plan (or a higher one) is already active, see subscription.CanBuy
+	ErrPlanActive = errors.New("billing: plan is already active")
+)
 
 // PaidHook runs after a payment activated a plan
 type PaidHook func(ctx context.Context, userID uint) error
@@ -23,13 +27,14 @@ type PaidHook func(ctx context.Context, userID uint) error
 type Service struct {
 	db        *gorm.DB
 	cfg       *config.Config
+	subs      *subscription.Service
 	providers map[string]Provider
 	onPaid    []PaidHook
 }
 
 // NewService enables the providers whose keys are configured
-func NewService(db *gorm.DB, cfg *config.Config) *Service {
-	s := &Service{db: db, cfg: cfg, providers: map[string]Provider{}}
+func NewService(db *gorm.DB, cfg *config.Config, subs *subscription.Service) *Service {
+	s := &Service{db: db, cfg: cfg, subs: subs, providers: map[string]Provider{}}
 	if cfg.YookassaShopID != "" && cfg.YookassaSecretKey != "" {
 		s.addProvider(NewYooKassa(cfg.YookassaShopID, cfg.YookassaSecretKey, cfg.YookassaAPIURL))
 	}
@@ -70,6 +75,13 @@ func (s *Service) Create(ctx context.Context, u *user.User, in CreateInput) (*Pa
 	amount, err := Price(in.Plan, in.Period, provider.Currency())
 	if err != nil {
 		return nil, "", err
+	}
+	current, err := s.subs.Active(u.ID)
+	if err != nil {
+		return nil, "", err
+	}
+	if !subscription.CanBuy(current, in.Plan, time.Now().UTC()) {
+		return nil, "", ErrPlanActive
 	}
 	locale := "ru"
 	if in.Locale == "en" {

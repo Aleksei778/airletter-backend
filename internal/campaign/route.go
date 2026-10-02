@@ -29,6 +29,7 @@ type createRequest struct {
 	Body    string `json:"body"`
 	// "html" (default) or "text"
 	Format      string              `json:"format"`
+	Locale      string              `json:"locale"`
 	Recipients  []string            `json:"recipients"`
 	Attachments []attachmentRequest `json:"attachments"`
 	// Files is the legacy name used by the extension
@@ -98,7 +99,7 @@ func (h *handler) create(c *gin.Context) {
 		return
 	}
 
-	in := CreateInput{Subject: req.Subject, Body: req.Body, Format: BodyFormat(req.Format), Recipients: req.Recipients}
+	in := CreateInput{Subject: req.Subject, Body: req.Body, Format: BodyFormat(req.Format), Locale: req.Locale, Recipients: req.Recipients}
 
 	for _, a := range append(req.Attachments, req.Files...) {
 		content, err := base64.StdEncoding.DecodeString(a.Content)
