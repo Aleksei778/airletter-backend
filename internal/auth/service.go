@@ -133,7 +133,7 @@ func (s *Service) Callback(c *gin.Context) {
 	}
 
 	if source == SourceExtension {
-		_, err = s.tokenSvc.FindOrCreate(token.FindOrCreate{
+		_, err = s.tokenSvc.Upsert(token.FindOrCreate{
 			User:    u,
 			Access:  oauthToken.AccessToken,
 			Refresh: oauthToken.RefreshToken,

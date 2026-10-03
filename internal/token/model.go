@@ -13,8 +13,8 @@ type Token struct {
 	gorm.Model
 	UserID  uint      `gorm:"uniqueIndex;not null"`
 	User    user.User `gorm:"foreignKey:UserID"`
-	Access  string    `gorm:"column:access;type:text;index;not null"`
-	Refresh string    `gorm:"column:refresh;type:text;index;not null"`
+	Access  string    `gorm:"column:access;type:text;not null"`
+	Refresh string    `gorm:"column:refresh;type:text;not null"`
 	Expiry  time.Time `gorm:"not null"`
 }
 
