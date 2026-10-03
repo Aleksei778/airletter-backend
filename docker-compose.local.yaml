@@ -18,7 +18,7 @@ services:
     build:
       context: .
       dockerfile: docker/app/local/Dockerfile
-    container_name: goquicksend_worker
+    container_name: airletter_worker
     command: ["air", "-c", ".air.worker.toml"]
     volumes:
       - .:/app
