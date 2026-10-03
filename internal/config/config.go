@@ -13,16 +13,24 @@ type Config struct {
 	DBName string `env:"DB_NAME,required"`
 	DBUser string `env:"DB_USER,required"`
 	DBPass string `env:"DB_PASS,required"`
+	// Apply SQL migrations when the API starts; turn off to run them separately (make migrate-up)
+	MigrateOnStart bool `env:"MIGRATE_ON_START" envDefault:"true"`
 
 	// Redis
 	RedisURL string `env:"REDIS_URL,required"`
 
-	// Kafka
-	KafkaTopic            string `env:"KAFKA_TOPIC,required"`
-	KafkaBootstrapServers string `env:"KAFKA_BOOTSTRAP_SERVERS,required"`
-	KafkaConsumerGroupID  string `env:"KAFKA_CONSUMER_GROUP_ID" envDefault:"email-consumers"`
-	KafkaMaxRetries       int    `env:"KAFKA_CONSUMER_MAX_RETRIES" envDefault:"5"`
-	KafkaBaseBackoff      int    `env:"KAFKA_CONSUMER_BASE_BACKOFF" envDefault:"1"`
+	// Queue (asynq)
+	WorkerConcurrency int `env:"WORKER_CONCURRENCY" envDefault:"10"`
+	SendMaxRetries    int `env:"SEND_MAX_RETRIES" envDefault:"5"`
+	// Pause between two emails of the same user, plus random jitter up to SendJitterSeconds
+	SendIntervalSeconds int `env:"SEND_INTERVAL_SECONDS" envDefault:"3"`
+	SendJitterSeconds   int `env:"SEND_JITTER_SECONDS" envDefault:"2"`
+	// How often the dispatcher releases pending recipients into the queue
+	DispatchIntervalSeconds int `env:"DISPATCH_INTERVAL_SECONDS" envDefault:"30"`
+	// Max recipients in a single campaign
+	MaxRecipientsPerCampaign int `env:"MAX_RECIPIENTS_PER_CAMPAIGN" envDefault:"5000"`
+	// Max total size of attachments (raw bytes); Gmail limit is 25MB after base64 encoding
+	MaxAttachmentsBytes int64 `env:"MAX_ATTACHMENTS_BYTES" envDefault:"18874368"`
 
 	// JWT
 	JWTAccessSecret   string `env:"JWT_ACCESS_SECRET_FOR_AUTH,required"`
@@ -39,7 +47,6 @@ type Config struct {
 
 	// App
 	FrontendURL string `env:"FRONTEND_URL,required"`
-	BackendURL  string `env:"BACKEND_URL,required"`
 	ExtensionID string `env:"EXTENSION_ID"`
 
 	// Encryption
@@ -48,16 +55,27 @@ type Config struct {
 	// Session
 	SessionSecret string `env:"SESSION_SECRET_KEY,required"`
 
-	// Yookassa
+	// Payments. A provider is enabled when its keys are set.
+	// YooKassa: RUB (cards of Russian banks, SBP)
 	YookassaShopID    string `env:"YOOKASSA_SHOP_ID"`
 	YookassaSecretKey string `env:"YOOKASSA_SECRET_KEY"`
-	PaymentReturnURL  string `env:"PAYMENT_RETURN_URL"`
+	YookassaAPIURL    string `env:"YOOKASSA_API_URL" envDefault:"https://api.yookassa.ru/v3"`
+	// Stripe: USD (international cards)
+	StripeSecretKey     string `env:"STRIPE_SECRET_KEY"`
+	StripeWebhookSecret string `env:"STRIPE_WEBHOOK_SECRET"`
+	StripeAPIURL        string `env:"STRIPE_API_URL" envDefault:"https://api.stripe.com/v1"`
 
 	BuggregatorDSN     string `env:"BUGGREGATOR_DSN"`
 	BuggregatorTCPAddr string `env:"BUGGREGATOR_TCP_ADDR" envDefault:"buggregator:9912"`
 
 	// App server
 	Port string `env:"APP_PORT" envDefault:"8080"`
+	// Secure cookies require HTTPS; disable only for plain-http local development
+	CookieSecure bool `env:"COOKIE_SECURE" envDefault:"true"`
+}
+
+func (c *Config) ExtensionOrigin() string {
+	return "chrome-extension://" + c.ExtensionID
 }
 
 func (c *Config) DSN() string {
@@ -68,7 +86,7 @@ func (c *Config) DSN() string {
 }
 
 func (c *Config) GoogleRedirectURI() string {
-	return c.BackendURL + "/api/auth/google/callback"
+	return c.FrontendURL + "/api/auth/google/callback"
 }
 
 func Load() (*Config, error) {

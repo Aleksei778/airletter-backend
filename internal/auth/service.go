@@ -6,311 +6,246 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
+	"slices"
+	"strings"
+
 	"quicksend/internal/config"
-	"quicksend/internal/subscription"
 	"quicksend/internal/token"
 	usermod "quicksend/internal/user"
-	"time"
 
-	"github.com/gin-contrib/sessions"
-	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	googleoauth "google.golang.org/api/oauth2/v2"
 	"google.golang.org/api/option"
 )
 
-type Source string
+const gmailSendScope = "https://www.googleapis.com/auth/gmail.send"
 
-type JwtClaims struct {
-	UserID  uint   `json:"user_id"`
-	Email   string `json:"email"`
-	OauthID string `json:"oauth_id"`
-	Type    string `json:"type"`
-	jwt.RegisteredClaims
+var (
+	ErrMissingScopes = errors.New("auth: required google scopes were not granted")
+	// ErrConsentRequired means Google did not return a refresh token and we have none stored
+	ErrConsentRequired = errors.New("auth: offline consent required")
+)
+
+type userService interface {
+	Create(dto usermod.Create) (*usermod.User, error)
+	FindByID(id uint) (*usermod.User, error)
+	FindByEmail(email string) (*usermod.User, error)
+	FillProfile(id uint, firstName, lastName, picture string) error
 }
+
+type trialCreator interface {
+	CreateTrial(u *usermod.User) error
+}
+
+// GrantHook is called after the user connected (or reconnected) Google
+type GrantHook func(ctx context.Context, userID uint) error
 
 type Service struct {
-	cfg             *config.Config
-	userSvc         *usermod.Service
-	tokenSvc        *token.Service
-	subscriptionSvc *subscription.Service
+	cfg      *config.Config
+	userSvc  userService
+	tokenSvc *token.Service
+	trials   trialCreator
+	store    *Store
+	onGrant  []GrantHook
 }
-
-type JwtTokenPair struct {
-	AccessToken  string
-	RefreshToken string
-}
-
-const (
-	SourceWebsite   Source = "website"
-	SourceExtension Source = "extension"
-)
 
 func NewService(
 	cfg *config.Config,
-	userSvc *usermod.Service,
+	userSvc userService,
 	tokenSvc *token.Service,
-	subscriptionSvc *subscription.Service,
+	trials trialCreator,
+	store *Store,
 ) *Service {
-	return &Service{
-		cfg:             cfg,
-		userSvc:         userSvc,
-		tokenSvc:        tokenSvc,
-		subscriptionSvc: subscriptionSvc,
-	}
+	return &Service{cfg: cfg, userSvc: userSvc, tokenSvc: tokenSvc, trials: trials, store: store}
 }
 
-func (s *Service) Login(c *gin.Context) {
-	source := Source(c.DefaultQuery("source", "website"))
-	lang := c.DefaultQuery("lang", "en")
-
-	oauthConfig := s.createOauthConfig(source)
-	state := rand.Text()
-
-	session := sessions.Default(c)
-	session.Set("source", source)
-	session.Set("lang", lang)
-	session.Set("state", state)
-	err := session.Save()
-	if err != nil {
-		slog.Error("failed to save session", "err", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "session error"})
-		return
-	}
-
-	url := oauthConfig.AuthCodeURL(
-		state,
-		oauth2.AccessTypeOffline,
-		oauth2.SetAuthURLParam("prompt", "consent"),
-	)
-
-	c.Redirect(http.StatusTemporaryRedirect, url)
+// OnGrant registers a hook run after Google access is granted
+func (s *Service) OnGrant(h GrantHook) {
+	s.onGrant = append(s.onGrant, h)
 }
 
-func (s *Service) Callback(c *gin.Context) {
-	session := sessions.Default(c)
+// ---- email + password ----
 
-	state, _ := session.Get("state").(string)
-	if state == "" || state != c.Query("state") {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid oauth state"})
-		return
-	}
-
-	source := Source(session.Get("source").(string))
-	lang, _ := session.Get("lang").(string)
-
-	if lang == "" {
-		lang = "en"
-	}
-
-	oauthCfg := s.createOauthConfig(source)
-
-	oauthToken, err := oauthCfg.Exchange(context.Background(), c.Query("code"))
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "no google token data"})
-		return
-	}
-
-	userInfo, err := s.getUserInfo(oauthToken)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "could not get user info"})
-		return
-	}
-
-	u, err := s.userSvc.FindOrCreate(usermod.FindOrCreate{
-		Email:      userInfo.Email,
-		FirstName:  userInfo.GivenName,
-		LastName:   userInfo.FamilyName,
-		PictureUrl: userInfo.Picture,
-		OauthID:    userInfo.Id,
-	})
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	if source == SourceExtension {
-		_, err = s.tokenSvc.FindOrCreate(token.FindOrCreate{
-			User:    u,
-			Access:  oauthToken.AccessToken,
-			Refresh: oauthToken.RefreshToken,
-			Expiry:  oauthToken.Expiry,
-		})
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-
-		if err := s.subscriptionSvc.CreateTrial(u); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-	}
-
-	accessToken, err := s.CreateAccessToken(u)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	refreshToken, err := s.CreateRefreshToken(u)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	s.redirect(c, accessToken, refreshToken, source, lang)
+type RegisterInput struct {
+	Email    string
+	Password string
+	Name     string
 }
 
-func (s *Service) createOauthConfig(source Source) *oauth2.Config {
-	scopes := s.cfg.WebsiteScopes
-	if source == SourceExtension {
-		scopes = s.cfg.ExtensionScopes
+// Register creates an account and starts the free trial
+func (s *Service) Register(ctx context.Context, in RegisterInput) (*usermod.User, error) {
+	email, err := ParseEmail(in.Email)
+	if err != nil {
+		return nil, err
+	}
+	hash, err := HashPassword(in.Password)
+	if err != nil {
+		return nil, err
 	}
 
+	u, err := s.userSvc.Create(usermod.Create{Email: email, PasswordHash: hash, FirstName: in.Name})
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.trials.CreateTrial(u); err != nil {
+		// the account exists; a missing trial is visible and fixable, a failed sign-up is not
+		slog.Error("auth: create trial", "err", err, "user_id", u.ID)
+	}
+	return u, nil
+}
+
+// Login checks the password. Failed attempts are limited per email and per IP.
+func (s *Service) Login(ctx context.Context, rawEmail, password, ip string) (*usermod.User, error) {
+	email, err := ParseEmail(rawEmail)
+	if err != nil {
+		return nil, ErrInvalidCredentials
+	}
+
+	blocked, err := s.store.TooManyFailures(ctx, email, ip)
+	if err != nil {
+		return nil, fmt.Errorf("auth: check attempts: %w", err)
+	}
+	if blocked {
+		return nil, ErrTooManyAttempts
+	}
+
+	u, err := s.userSvc.FindByEmail(email)
+	if err != nil {
+		return nil, fmt.Errorf("auth: find user: %w", err)
+	}
+
+	hash := ""
+	if u != nil {
+		hash = u.PasswordHash
+	}
+	if !checkPassword(hash, password) {
+		s.store.RecordFailure(ctx, email, ip)
+		return nil, ErrInvalidCredentials
+	}
+
+	s.store.ResetFailures(ctx, email)
+	return u, nil
+}
+
+// ---- Google as an integration: permission to send via Gmail ----
+
+func (s *Service) oauthConfig() *oauth2.Config {
 	return &oauth2.Config{
 		ClientID:     s.cfg.GoogleClientID,
 		ClientSecret: s.cfg.GoogleClientSecret,
 		RedirectURL:  s.cfg.GoogleRedirectURI(),
-		Scopes:       scopes,
+		Scopes:       s.cfg.ExtensionScopes,
 		Endpoint:     google.Endpoint,
 	}
 }
 
-func (s *Service) getUserInfo(token *oauth2.Token) (*googleoauth.Userinfo, error) {
-	httpClient := oauth2.NewClient(context.Background(),
-		oauth2.StaticTokenSource(token),
-	)
+// GoogleAuthURL builds the consent URL. forceConsent is needed to receive a
+// refresh token when the account has already granted access before.
+func (s *Service) GoogleAuthURL(state string, forceConsent bool) string {
+	prompt := "select_account"
+	if forceConsent {
+		prompt = "consent"
+	}
+	return s.oauthConfig().AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.SetAuthURLParam("prompt", prompt))
+}
 
-	svc, err := googleoauth.NewService(context.Background(),
-		option.WithHTTPClient(httpClient),
-	)
+// ConnectGoogle exchanges the code and stores the grant for the user
+func (s *Service) ConnectGoogle(ctx context.Context, userID uint, code string) error {
+	oauthToken, err := s.oauthConfig().Exchange(ctx, code)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("auth: exchange code: %w", err)
 	}
 
-	info, err := svc.Userinfo.Get().Do()
-	if err != nil {
-		return nil, err
+	// users can uncheck individual scopes on the consent screen
+	if !hasScope(oauthToken, gmailSendScope) {
+		return ErrMissingScopes
 	}
 
-	return info, nil
-}
-
-func (s *Service) redirect(
-	c *gin.Context,
-	accessToken, refreshToken string,
-	source Source,
-	lang string,
-) {
-	if source == SourceWebsite {
-		c.SetCookie(
-			"access_jwt_token",
-			"Bearer "+accessToken,
-			s.cfg.JWTAccessExpHours*3600,
-			"/", "", true, true,
-		)
-		c.SetCookie(
-			"refresh_jwt_token",
-			"Bearer "+refreshToken,
-			s.cfg.JWTRefreshExpDays*86400,
-			"/", "", true, true,
-		)
-		c.Redirect(http.StatusTemporaryRedirect,
-			fmt.Sprintf("%s/%s/profile", s.cfg.FrontendURL, lang),
-		)
-	} else {
-		c.Redirect(http.StatusTemporaryRedirect,
-			fmt.Sprintf("https://%s.chromiumapp.org/callback?access_jwt_token=%s&refresh_jwt_token=%s",
-				s.cfg.ExtensionID, accessToken, refreshToken,
-			),
-		)
-	}
-}
-
-func (s *Service) CreateAccessToken(u *usermod.User) (string, error) {
-	return s.sign(u, "access", time.Duration(s.cfg.JWTAccessExpHours)*time.Hour, s.cfg.JWTAccessSecret)
-}
-
-func (s *Service) CreateRefreshToken(u *usermod.User) (string, error) {
-	return s.sign(u, "refresh", time.Duration(s.cfg.JWTRefreshExpDays)*24*time.Hour, s.cfg.JWTRefreshSecret)
-}
-
-func (s *Service) VerifyAccessToken(tokenStr string) (*JwtClaims, error) {
-	return s.verify(tokenStr, "access", s.cfg.JWTAccessSecret)
-}
-
-func (s *Service) VerifyRefreshToken(tokenStr string) (*JwtClaims, error) {
-	return s.verify(tokenStr, "refresh", s.cfg.JWTRefreshSecret)
-}
-
-func (s *Service) RefreshToken(tokenStr string) (*JwtTokenPair, error) {
-	claims, err := s.VerifyRefreshToken(tokenStr)
-	if err != nil {
-		return nil, fmt.Errorf("jwt: could not verify token: %w", err)
-	}
-
-	user, err := s.userSvc.FindByID(claims.UserID)
-	if err != nil {
-		return nil, fmt.Errorf("jwt: could not find user: %w", err)
-	}
-
-	accessToken, err := s.CreateAccessToken(user)
-	if err != nil {
-		return nil, fmt.Errorf("jwt: could not create access token: %w", err)
-	}
-
-	refreshToken, err := s.CreateRefreshToken(user)
-	if err != nil {
-		return nil, fmt.Errorf("jwt: could not create refresh token: %w", err)
-	}
-
-	return &JwtTokenPair{
-		AccessToken:  accessToken,
-		RefreshToken: refreshToken,
-	}, nil
-}
-
-func (s *Service) sign(u *usermod.User, tokenType string, ttl time.Duration, secret string) (string, error) {
-	claims := JwtClaims{
-		UserID:  u.ID,
-		Email:   u.Email,
-		OauthID: u.OauthID,
-		Type:    tokenType,
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(ttl)),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
-		},
-	}
-
-	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(secret))
-}
-
-func (s *Service) verify(tokenStr string, expectedType string, secret string) (*JwtClaims, error) {
-	claims := &JwtClaims{}
-
-	jwtToken, err := jwt.ParseWithClaims(tokenStr, claims, func(token *jwt.Token) (any, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, errors.New("unexpected signing method")
+	if oauthToken.RefreshToken == "" {
+		has, err := s.tokenSvc.HasRefreshToken(userID)
+		if err != nil {
+			return fmt.Errorf("auth: check refresh token: %w", err)
 		}
+		if !has {
+			return ErrConsentRequired
+		}
+	}
 
-		return []byte(secret), nil
-	})
+	info, err := userInfo(ctx, oauthToken)
+	if err != nil {
+		return fmt.Errorf("auth: user info: %w", err)
+	}
 
+	if _, err := s.tokenSvc.Upsert(token.FindOrCreate{
+		UserID:      userID,
+		Access:      oauthToken.AccessToken,
+		Refresh:     oauthToken.RefreshToken,
+		Expiry:      oauthToken.Expiry,
+		GoogleSub:   info.Id,
+		GoogleEmail: strings.ToLower(info.Email),
+	}); err != nil {
+		return fmt.Errorf("auth: save google token: %w", err)
+	}
+
+	if err := s.userSvc.FillProfile(userID, info.GivenName, info.FamilyName, info.Picture); err != nil {
+		slog.Error("auth: fill profile", "err", err, "user_id", userID)
+	}
+
+	for _, h := range s.onGrant {
+		if err := h(ctx, userID); err != nil {
+			return fmt.Errorf("auth: grant hook: %w", err)
+		}
+	}
+	return nil
+}
+
+func (s *Service) HasGoogle(userID uint) (bool, error) {
+	return s.tokenSvc.HasRefreshToken(userID)
+}
+
+// ---- one-time codes for the extension ----
+
+// NewLoginCode creates a one-time code the extension exchanges for JWTs
+func (s *Service) NewLoginCode(ctx context.Context, userID uint) (string, error) {
+	code := rand.Text()
+	if err := s.store.SaveLoginCode(ctx, code, userID); err != nil {
+		return "", fmt.Errorf("auth: save login code: %w", err)
+	}
+	return code, nil
+}
+
+// ExchangeLoginCode turns a one-time code into a token pair
+func (s *Service) ExchangeLoginCode(ctx context.Context, code string) (*TokenPair, error) {
+	userID, ok, err := s.store.ConsumeLoginCode(ctx, code)
+	if err != nil {
+		return nil, fmt.Errorf("auth: consume login code: %w", err)
+	}
+	if !ok {
+		return nil, ErrInvalidToken
+	}
+
+	u, err := s.userSvc.FindByID(userID)
+	if err != nil {
+		return nil, fmt.Errorf("auth: find user: %w", err)
+	}
+	if u == nil {
+		return nil, ErrInvalidToken
+	}
+
+	return s.IssuePair(ctx, u)
+}
+
+func userInfo(ctx context.Context, t *oauth2.Token) (*googleoauth.Userinfo, error) {
+	svc, err := googleoauth.NewService(ctx, option.WithTokenSource(oauth2.StaticTokenSource(t)))
 	if err != nil {
 		return nil, err
 	}
+	return svc.Userinfo.Get().Context(ctx).Do()
+}
 
-	if !jwtToken.Valid {
-		return nil, errors.New("invalid token")
-	}
-
-	if claims.Type != expectedType {
-		return nil, errors.New("invalid token type")
-	}
-
-	return claims, nil
+func hasScope(t *oauth2.Token, scope string) bool {
+	granted, _ := t.Extra("scope").(string)
+	return slices.Contains(strings.Fields(granted), scope)
 }

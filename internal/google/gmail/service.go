@@ -2,11 +2,10 @@ package gmail
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
-	"quicksend/internal/config"
-	"quicksend/internal/google/creds"
+
 	tokenmod "quicksend/internal/token"
-	usermod "quicksend/internal/user"
 
 	"google.golang.org/api/gmail/v1"
 	"google.golang.org/api/option"
@@ -14,40 +13,25 @@ import (
 
 type Service struct {
 	tokenSvc *tokenmod.Service
-	cfg      *config.Config
 }
 
-func NewService(tokenSvc *tokenmod.Service, cfg *config.Config) *Service {
-	return &Service{tokenSvc: tokenSvc, cfg: cfg}
+func NewService(tokenSvc *tokenmod.Service) *Service {
+	return &Service{tokenSvc: tokenSvc}
 }
 
-func (svc *Service) SendEmail(ctx context.Context, user *usermod.User, raw string) (*gmail.Message, error) {
-	token, err := svc.tokenSvc.FindByUser(user)
+// Send sends a raw RFC 2822 message from the user's mailbox
+func (svc *Service) Send(ctx context.Context, userID uint, raw []byte) (*gmail.Message, error) {
+	ts, err := svc.tokenSvc.TokenSource(ctx, userID)
 	if err != nil {
-		return nil, fmt.Errorf("gmail: google token not found for user %d: %w", user.ID, err)
+		return nil, err
 	}
 
-	if token.IsExpired() {
-		if err := svc.tokenSvc.RefreshToken(ctx, token); err != nil {
-			return nil, fmt.Errorf("gmail: google token not refreshed for user %d: %w", user.ID, err)
-		}
-	}
-
-	gmailClient, err := svc.getGmailClientForToken(ctx, token)
+	client, err := gmail.NewService(ctx, option.WithTokenSource(ts))
 	if err != nil {
-		return nil, fmt.Errorf("gmail: google token not found for user %d: %w", user.ID, err)
+		return nil, fmt.Errorf("gmail: create client: %w", err)
 	}
 
-	return gmailClient.Users.Messages.Send("me", &gmail.Message{Raw: raw}).Context(ctx).Do()
-}
+	msg := &gmail.Message{Raw: base64.URLEncoding.EncodeToString(raw)}
 
-func (svc *Service) getGmailClientForToken(ctx context.Context, token *tokenmod.Token) (*gmail.Service, error) {
-	credentials := creds.CreateCredentials(svc.cfg, token, []string{"https://www.googleapis.com/auth/gmail.send"})
-
-	gmailClient, err := gmail.NewService(ctx, option.WithTokenSource(credentials))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create gmail service: %w", err)
-	}
-
-	return gmailClient, nil
+	return client.Users.Messages.Send("me", msg).Context(ctx).Do()
 }

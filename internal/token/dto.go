@@ -1,13 +1,15 @@
 package token
 
 import (
-	"quicksend/internal/user"
 	"time"
 )
 
 type FindOrCreate struct {
-	User    *user.User
+	UserID  uint
 	Access  string
 	Refresh string
 	Expiry  time.Time
+	// Google account the tokens belong to
+	GoogleSub   string
+	GoogleEmail string
 }

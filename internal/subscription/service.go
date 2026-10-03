@@ -29,8 +29,17 @@ func (s *Service) CreateTrial(u *user.User) error {
 		Plan:      PlanTrial,
 		IsActive:  true,
 		StartedAt: now,
-		EndAt:     now.AddDate(0, 0, 10),
+		EndAt:     now.AddDate(0, 0, PlanTrial.DaysCount()),
 	}
 
 	return s.repo.Create(sub)
+}
+
+// Active returns the current active subscription or nil if there is none
+func (s *Service) Active(userID uint) (*Subscription, error) {
+	sub, err := s.repo.FindActive(userID)
+	if err != nil {
+		return nil, fmt.Errorf("subscription: find active: %w", err)
+	}
+	return sub, nil
 }
