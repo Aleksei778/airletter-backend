@@ -16,11 +16,12 @@ func NewRepository(db *gorm.DB) *Repository {
 	return &Repository{db: db}
 }
 
-func (r *Repository) FindActive(u *user.User) (*Subscription, error) {
+func (r *Repository) FindActive(userID uint) (*Subscription, error) {
 	var sub Subscription
 
 	err := r.db.
-		Where("user_id = ? AND is_active = true AND end_at > ?", u.ID, time.Now().UTC()).
+		Where("user_id = ? AND is_active = true AND end_at > ?", userID, time.Now().UTC()).
+		Order("end_at DESC").
 		First(&sub).
 		Error
 
