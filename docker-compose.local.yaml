@@ -1,10 +1,10 @@
-name: goquicksend
+name: airletter
 services:
   app:
     build:
       context: .
       dockerfile: docker/app/local/Dockerfile
-    container_name: goquicksend_app
+    container_name: airletter_app
     ports:
       - "8080:8080"
     volumes:
@@ -34,7 +34,7 @@ services:
     build:
       context: .
       dockerfile: docker/nginx/Dockerfile
-    container_name: goquicksend_nginx
+    container_name: airletter_nginx
     ports:
       - "80:80"
       - "443:443"
@@ -50,7 +50,7 @@ services:
     build:
       context: .
       dockerfile: ./docker/db/Dockerfile
-    container_name: goquicksend_postgres
+    container_name: airletter_postgres
     ports:
       - "5433:5432"
     environment:
@@ -64,7 +64,7 @@ services:
 
   redis:
     image: redis:8.4.0
-    container_name: goquicksend_redis
+    container_name: airletter_redis
     command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
     ports:
       - "6379:6379"
@@ -75,7 +75,7 @@ services:
 
   asynqmon:
     image: hibiken/asynqmon:0.7.2
-    container_name: goquicksend_asynqmon
+    container_name: airletter_asynqmon
     restart: unless-stopped
     platform: linux/amd64
     ports:
@@ -88,7 +88,7 @@ services:
 
 networks:
   default:
-    name: goquicksend_network
+    name: airletter_network
     external: true
 
 volumes:
