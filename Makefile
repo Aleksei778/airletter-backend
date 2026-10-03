@@ -2,8 +2,8 @@ include .env
 
 SHELL = /bin/sh
 UID := $(shell id -u)
-COMPOSE = docker compose -p goquicksend -f docker-compose.local.yaml
-NETWORK = goquicksend_network
+COMPOSE = docker compose -p airletter -f docker-compose.local.yaml
+NETWORK = airletter_network
 
 .PHONY: up down restart stop \
         go db db-c redis redis-c
