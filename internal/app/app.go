@@ -11,7 +11,6 @@ import (
 	"quicksend/internal/crypto"
 	"quicksend/internal/db"
 	"quicksend/internal/logger"
-	"quicksend/internal/models"
 	"quicksend/internal/redis"
 	"quicksend/internal/subscription"
 	"quicksend/internal/token"
@@ -68,19 +67,6 @@ func New(cfg *config.Config) (*App, error) {
 		Subscriptions: subscription.NewService(subscription.NewRepository(gdb)),
 		Campaigns:     campaign.NewRepository(gdb),
 	}, nil
-}
-
-// Models lists all tables managed by AutoMigrate
-func Models() []any {
-	return []any{
-		&user.User{},
-		&token.Token{},
-		&subscription.Subscription{},
-		&models.Payment{},
-		&campaign.Campaign{},
-		&campaign.Recipient{},
-		&campaign.Attachment{},
-	}
 }
 
 func (a *App) Close() {
