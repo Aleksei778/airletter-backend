@@ -40,7 +40,7 @@ func main() {
 		return
 	}
 
-	sender := worker.NewSender(a.Campaigns, a.Users, a.Tokens, gmail.NewService(a.Tokens), a.Redis)
+	sender := worker.NewSender(a.Campaigns, a.Users, a.Tokens, gmail.NewService(a.Tokens), a.Redis, cfg.FrontendURL)
 	dispatcher := worker.NewDispatcher(a.Campaigns, a.Subscriptions, a.Redis, a.Queue, cfg)
 
 	mux := asynq.NewServeMux()

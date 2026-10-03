@@ -52,6 +52,8 @@ type CreateInput struct {
 	Format      BodyFormat
 	Recipients  []string
 	Attachments []AttachmentInput
+	// "ru" or "en": language of the trial footer; anything else means "en"
+	Locale string
 	// nil or a time in the past means "send now"
 	ScheduledAt *time.Time
 }
@@ -112,6 +114,11 @@ func (s *Service) Create(ctx context.Context, u *user.User, in CreateInput) (*Cr
 		return nil, invalid("format must be html or text")
 	}
 
+	locale := "en"
+	if in.Locale == "ru" {
+		locale = "ru"
+	}
+
 	emails, skipped := NormalizeRecipients(in.Recipients)
 	if len(emails) == 0 {
 		return nil, invalid("no valid recipients")
@@ -159,6 +166,8 @@ func (s *Service) Create(ctx context.Context, u *user.User, in CreateInput) (*Cr
 		Subject:     subject,
 		Body:        in.Body,
 		BodyFormat:  format,
+		Branded:     !sub.Plan.Paid(),
+		Locale:      locale,
 		Status:      StatusScheduled,
 		ScheduledAt: scheduledAt,
 		Recipients:  recipients,

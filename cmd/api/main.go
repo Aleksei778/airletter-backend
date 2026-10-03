@@ -22,6 +22,7 @@ import (
 	"quicksend/internal/google/sheets"
 	"quicksend/internal/httpapi"
 	"quicksend/internal/queue"
+	"quicksend/internal/subscription"
 
 	"github.com/getsentry/sentry-go"
 	"github.com/gin-gonic/gin"
@@ -59,7 +60,7 @@ func main() {
 	campaignSvc := campaign.NewService(a.Campaigns, a.Subscriptions, a.Tokens, cfg, trigger)
 	sheetsSvc := sheets.NewService(a.Tokens)
 
-	billingSvc := billing.NewService(a.DB, cfg)
+	billingSvc := billing.NewService(a.DB, cfg, a.Subscriptions)
 	slog.Info("payment providers", "enabled", billingSvc.Providers())
 	// a paid plan continues campaigns that stopped when the previous one ended
 	billingSvc.OnPaid(func(ctx context.Context, userID uint) error {
@@ -70,7 +71,11 @@ func main() {
 		Addr: ":" + cfg.Port,
 		Handler: httpapi.NewRouter(a, authSvc,
 			func(_, r *gin.RouterGroup) { campaign.RegisterRoutes(r, campaignSvc, a.Users, auth.CurrentUserID) },
-			func(_, r *gin.RouterGroup) { sheets.RegisterRoutes(r, sheetsSvc, auth.CurrentUserID) },
+			func(_, r *gin.RouterGroup) {
+				// trial users add recipients by hand; import is a paid feature
+				paid := r.Group("", subscription.RequirePaid(a.Subscriptions, auth.CurrentUserID))
+				sheets.RegisterRoutes(paid, sheetsSvc, auth.CurrentUserID)
+			},
 			func(pub, r *gin.RouterGroup) { billing.RegisterRoutes(pub, r, billingSvc, a.Users, auth.CurrentUserID) },
 		),
 		ReadHeaderTimeout: 10 * time.Second,
