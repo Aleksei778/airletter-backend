@@ -39,7 +39,6 @@ type Config struct {
 
 	// App
 	FrontendURL string `env:"FRONTEND_URL,required"`
-	BackendURL  string `env:"BACKEND_URL,required"`
 	ExtensionID string `env:"EXTENSION_ID"`
 
 	// Encryption
@@ -68,7 +67,7 @@ func (c *Config) DSN() string {
 }
 
 func (c *Config) GoogleRedirectURI() string {
-	return c.BackendURL + "/api/auth/google/callback"
+	return c.FrontendURL + "/api/auth/google/callback"
 }
 
 func Load() (*Config, error) {
