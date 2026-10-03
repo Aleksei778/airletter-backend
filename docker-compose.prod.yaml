@@ -1,5 +1,6 @@
 # Production stack. Deployed by .github/workflows/ci-cd.yml into DEPLOY_PATH on the server
-# together with docker/nginx/nginx.conf and .env (APP_IMAGE is appended to .env on deploy).
+# together with .env (APP_IMAGE is appended to .env on deploy).
+# TLS and routing are done by Nginx Proxy Manager on shared_network: forward to airletter-api:8080.
 name: airletter
 services:
   app:
@@ -19,8 +20,9 @@ services:
       retries: 5
       start_period: 15s
     networks:
-      - default
-      - shared_network
+      default:
+      shared_network:
+        aliases: [airletter-api]
 
   worker:
     image: ${APP_IMAGE}
@@ -30,23 +32,6 @@ services:
     depends_on:
       app:
         condition: service_healthy
-    networks:
-      - default
-      - shared_network
-
-  nginx:
-    image: nginx:1.29.0
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-    restart: unless-stopped
-    depends_on:
-      - app
-    networks:
-      - default
-      - shared_network
 
   db:
     image: postgres:17

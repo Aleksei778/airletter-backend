@@ -94,7 +94,6 @@ jobs:
         run: |
           mkdir release
           cp docker-compose.prod.yaml release/docker-compose.yaml
-          cp docker/nginx/nginx.conf release/nginx.conf
           printf '%s\n' "$PROD_ENV_FILE" > release/.env
           echo "APP_IMAGE=${{ needs.build.outputs.image }}:${{ github.sha }}" >> release/.env
 
@@ -102,7 +101,7 @@ jobs:
         run: |
           ssh -i ~/.ssh/id_deploy -p "$SSH_PORT" "$SSH_TARGET" "mkdir -p '$DEPLOY_PATH'"
           scp -i ~/.ssh/id_deploy -P "$SSH_PORT" \
-            release/docker-compose.yaml release/nginx.conf release/.env \
+            release/docker-compose.yaml release/.env \
             "$SSH_TARGET:$DEPLOY_PATH/"
 
       - name: Deploy
