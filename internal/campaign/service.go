@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/mail"
+	"regexp"
 	"strings"
 	"time"
 
@@ -37,11 +38,18 @@ type AttachmentInput struct {
 	Filename string
 	MimeType string
 	Content  []byte
+	// set for inline images referenced from the HTML body as cid:<ContentID>
+	ContentID string
 }
 
+// contentIDRe keeps Content-ID values safe to put into a MIME header
+var contentIDRe = regexp.MustCompile(`^[A-Za-z0-9._@-]{1,100}$`)
+
 type CreateInput struct {
-	Subject     string
-	Body        string
+	Subject string
+	Body    string
+	// FormatHTML (default) or FormatText
+	Format      BodyFormat
 	Recipients  []string
 	Attachments []AttachmentInput
 	// nil or a time in the past means "send now"
@@ -96,6 +104,13 @@ func (s *Service) Create(ctx context.Context, u *user.User, in CreateInput) (*Cr
 	if strings.TrimSpace(in.Body) == "" {
 		return nil, invalid("body is required")
 	}
+	format := in.Format
+	if format == "" {
+		format = FormatHTML
+	}
+	if format != FormatHTML && format != FormatText {
+		return nil, invalid("format must be html or text")
+	}
 
 	emails, skipped := NormalizeRecipients(in.Recipients)
 	if len(emails) == 0 {
@@ -111,12 +126,16 @@ func (s *Service) Create(ctx context.Context, u *user.User, in CreateInput) (*Cr
 		if a.Filename == "" || len(a.Content) == 0 {
 			return nil, invalid("attachment must have a filename and content")
 		}
+		if a.ContentID != "" && !contentIDRe.MatchString(a.ContentID) {
+			return nil, invalid("invalid content_id for %s", a.Filename)
+		}
 		total += int64(len(a.Content))
 		attachments = append(attachments, Attachment{
-			Filename: a.Filename,
-			MimeType: a.MimeType,
-			Size:     int64(len(a.Content)),
-			Content:  a.Content,
+			Filename:  a.Filename,
+			MimeType:  a.MimeType,
+			ContentID: a.ContentID,
+			Size:      int64(len(a.Content)),
+			Content:   a.Content,
 		})
 	}
 	if total > s.cfg.MaxAttachmentsBytes {
@@ -139,6 +158,7 @@ func (s *Service) Create(ctx context.Context, u *user.User, in CreateInput) (*Cr
 		SenderName:  strings.TrimSpace(u.FirstName + " " + u.LastName),
 		Subject:     subject,
 		Body:        in.Body,
+		BodyFormat:  format,
 		Status:      StatusScheduled,
 		ScheduledAt: scheduledAt,
 		Recipients:  recipients,

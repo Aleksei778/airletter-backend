@@ -20,11 +20,15 @@ type attachmentRequest struct {
 	Filename string `json:"filename"`
 	MimeType string `json:"mimetype"`
 	Content  string `json:"content"` // base64
+	// set for images shown inside the HTML body as <img src="cid:...">
+	ContentID string `json:"content_id"`
 }
 
 type createRequest struct {
-	Subject     string              `json:"subject"`
-	Body        string              `json:"body"`
+	Subject string `json:"subject"`
+	Body    string `json:"body"`
+	// "html" (default) or "text"
+	Format      string              `json:"format"`
 	Recipients  []string            `json:"recipients"`
 	Attachments []attachmentRequest `json:"attachments"`
 	// Files is the legacy name used by the extension
@@ -94,7 +98,7 @@ func (h *handler) create(c *gin.Context) {
 		return
 	}
 
-	in := CreateInput{Subject: req.Subject, Body: req.Body, Recipients: req.Recipients}
+	in := CreateInput{Subject: req.Subject, Body: req.Body, Format: BodyFormat(req.Format), Recipients: req.Recipients}
 
 	for _, a := range append(req.Attachments, req.Files...) {
 		content, err := base64.StdEncoding.DecodeString(a.Content)
@@ -102,7 +106,7 @@ func (h *handler) create(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "attachment " + a.Filename + " is not valid base64"})
 			return
 		}
-		in.Attachments = append(in.Attachments, AttachmentInput{Filename: a.Filename, MimeType: a.MimeType, Content: content})
+		in.Attachments = append(in.Attachments, AttachmentInput{Filename: a.Filename, MimeType: a.MimeType, Content: content, ContentID: a.ContentID})
 	}
 
 	in.ScheduledAt = req.ScheduledAt
