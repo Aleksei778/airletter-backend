@@ -55,10 +55,15 @@ type Config struct {
 	// Session
 	SessionSecret string `env:"SESSION_SECRET_KEY,required"`
 
-	// Yookassa
+	// Payments. A provider is enabled when its keys are set.
+	// YooKassa: RUB (cards of Russian banks, SBP)
 	YookassaShopID    string `env:"YOOKASSA_SHOP_ID"`
 	YookassaSecretKey string `env:"YOOKASSA_SECRET_KEY"`
-	PaymentReturnURL  string `env:"PAYMENT_RETURN_URL"`
+	YookassaAPIURL    string `env:"YOOKASSA_API_URL" envDefault:"https://api.yookassa.ru/v3"`
+	// Stripe: USD (international cards)
+	StripeSecretKey     string `env:"STRIPE_SECRET_KEY"`
+	StripeWebhookSecret string `env:"STRIPE_WEBHOOK_SECRET"`
+	StripeAPIURL        string `env:"STRIPE_API_URL" envDefault:"https://api.stripe.com/v1"`
 
 	BuggregatorDSN     string `env:"BUGGREGATOR_DSN"`
 	BuggregatorTCPAddr string `env:"BUGGREGATOR_TCP_ADDR" envDefault:"buggregator:9912"`

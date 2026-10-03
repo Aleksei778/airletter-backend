@@ -45,3 +45,39 @@ func (r *Repository) HasUsedTrial(u *user.User) (bool, error) {
 func (r *Repository) Create(sub *Subscription) error {
 	return r.db.Create(sub).Error
 }
+
+// Activate gives the user a paid plan inside the caller's transaction and
+// returns the new subscription. Buying the plan that is still active extends
+// it from its end date; any other active subscription (trial, another plan)
+// is replaced from now on.
+func Activate(tx *gorm.DB, userID uint, plan Plan, days int, now time.Time) (*Subscription, error) {
+	var current Subscription
+	err := tx.Where("user_id = ? AND is_active = true AND end_at > ?", userID, now).
+		Order("end_at DESC").First(&current).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+
+	start := now
+	if err == nil && current.Plan == plan {
+		start = current.EndAt
+	}
+
+	if err := tx.Model(&Subscription{}).
+		Where("user_id = ? AND is_active = true", userID).
+		Update("is_active", false).Error; err != nil {
+		return nil, err
+	}
+
+	sub := &Subscription{
+		UserID:    userID,
+		Plan:      plan,
+		IsActive:  true,
+		StartedAt: now,
+		EndAt:     start.AddDate(0, 0, days),
+	}
+	if err := tx.Omit("User").Create(sub).Error; err != nil {
+		return nil, err
+	}
+	return sub, nil
+}

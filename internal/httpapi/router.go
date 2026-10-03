@@ -16,8 +16,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Routes lets feature packages mount their handlers on the protected group
-type Routes func(protected *gin.RouterGroup)
+// Routes lets feature packages mount their handlers: public is /api,
+// protected is /api with an access token required
+type Routes func(public, protected *gin.RouterGroup)
 
 func NewRouter(a *app.App, authSvc *auth.Service, extra ...Routes) *gin.Engine {
 	cfg := a.Cfg
@@ -70,7 +71,7 @@ func NewRouter(a *app.App, authSvc *auth.Service, extra ...Routes) *gin.Engine {
 	subscription.RegisterRoutes(protected, a.Subscriptions, a.Redis, auth.CurrentUserID)
 
 	for _, register := range extra {
-		register(protected)
+		register(api, protected)
 	}
 
 	return r
