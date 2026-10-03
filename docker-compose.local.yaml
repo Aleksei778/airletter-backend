@@ -14,22 +14,6 @@ services:
     networks:
       default:
 
-  worker:
-    build:
-      context: .
-      dockerfile: docker/app/local/Dockerfile
-    container_name: airletter_worker
-    command: ["air", "-c", ".air.worker.toml"]
-    volumes:
-      - .:/app
-    env_file:
-      .env
-    depends_on:
-      - db
-      - redis
-    networks:
-      default:
-
   nginx:
     build:
       context: .

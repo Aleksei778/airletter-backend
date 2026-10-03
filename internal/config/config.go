@@ -17,12 +17,18 @@ type Config struct {
 	// Redis
 	RedisURL string `env:"REDIS_URL,required"`
 
-	// Kafka
-	KafkaTopic            string `env:"KAFKA_TOPIC,required"`
-	KafkaBootstrapServers string `env:"KAFKA_BOOTSTRAP_SERVERS,required"`
-	KafkaConsumerGroupID  string `env:"KAFKA_CONSUMER_GROUP_ID" envDefault:"email-consumers"`
-	KafkaMaxRetries       int    `env:"KAFKA_CONSUMER_MAX_RETRIES" envDefault:"5"`
-	KafkaBaseBackoff      int    `env:"KAFKA_CONSUMER_BASE_BACKOFF" envDefault:"1"`
+	// Queue (asynq)
+	WorkerConcurrency int `env:"WORKER_CONCURRENCY" envDefault:"10"`
+	SendMaxRetries    int `env:"SEND_MAX_RETRIES" envDefault:"5"`
+	// Pause between two emails of the same user, plus random jitter up to SendJitterSeconds
+	SendIntervalSeconds int `env:"SEND_INTERVAL_SECONDS" envDefault:"3"`
+	SendJitterSeconds   int `env:"SEND_JITTER_SECONDS" envDefault:"2"`
+	// How often the dispatcher releases pending recipients into the queue
+	DispatchIntervalSeconds int `env:"DISPATCH_INTERVAL_SECONDS" envDefault:"30"`
+	// Max recipients in a single campaign
+	MaxRecipientsPerCampaign int `env:"MAX_RECIPIENTS_PER_CAMPAIGN" envDefault:"5000"`
+	// Max total size of attachments (raw bytes); Gmail limit is 25MB after base64 encoding
+	MaxAttachmentsBytes int64 `env:"MAX_ATTACHMENTS_BYTES" envDefault:"18874368"`
 
 	// JWT
 	JWTAccessSecret   string `env:"JWT_ACCESS_SECRET_FOR_AUTH,required"`
@@ -57,6 +63,12 @@ type Config struct {
 
 	// App server
 	Port string `env:"APP_PORT" envDefault:"8080"`
+	// Secure cookies require HTTPS; disable only for plain-http local development
+	CookieSecure bool `env:"COOKIE_SECURE" envDefault:"true"`
+}
+
+func (c *Config) ExtensionOrigin() string {
+	return "chrome-extension://" + c.ExtensionID
 }
 
 func (c *Config) DSN() string {
