@@ -126,6 +126,10 @@ func (h *handler) create(c *gin.Context) {
 	case errors.As(err, &vErr):
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": vErr.Msg})
 		return
+	case errors.Is(err, ErrGmailNotConnected):
+		// same code as a revoked grant: clients offer to (re)connect Gmail
+		c.JSON(http.StatusConflict, gin.H{"error": "gmail is not connected", "code": "reauth_required"})
+		return
 	case errors.Is(err, ErrNoSubscription):
 		c.JSON(http.StatusPaymentRequired, gin.H{"error": "no active subscription", "code": "no_subscription"})
 		return
@@ -216,6 +220,7 @@ func (h *handler) me(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"email":       u.Email,
+		"phone":       u.Phone,
 		"first_name":  u.FirstName,
 		"last_name":   u.LastName,
 		"picture_url": u.PictureUrl,

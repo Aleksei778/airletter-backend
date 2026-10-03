@@ -14,10 +14,52 @@ import (
 	"gorm.io/gorm"
 )
 
-type fakeUsers struct{ u *usermod.User }
+// fakeUsers is an in-memory user store
+type fakeUsers struct{ byID map[uint]*usermod.User }
 
-func (f fakeUsers) FindOrCreate(usermod.FindOrCreate) (*usermod.User, error) { return f.u, nil }
-func (f fakeUsers) FindByID(uint) (*usermod.User, error)                     { return f.u, nil }
+func newFakeUsers(users ...*usermod.User) *fakeUsers {
+	f := &fakeUsers{byID: map[uint]*usermod.User{}}
+	for _, u := range users {
+		f.byID[u.ID] = u
+	}
+	return f
+}
+
+func (f *fakeUsers) Create(dto usermod.Create) (*usermod.User, error) {
+	for _, u := range f.byID {
+		if (dto.Email != "" && u.Email == dto.Email) || (dto.Phone != "" && u.Phone == dto.Phone) {
+			return nil, usermod.ErrLoginTaken
+		}
+	}
+	u := &usermod.User{Model: gorm.Model{ID: uint(len(f.byID) + 100)}, Email: dto.Email, Phone: dto.Phone, PasswordHash: dto.PasswordHash, FirstName: dto.FirstName}
+	f.byID[u.ID] = u
+	return u, nil
+}
+func (f *fakeUsers) FindByID(id uint) (*usermod.User, error) { return f.byID[id], nil }
+func (f *fakeUsers) FindByEmail(e string) (*usermod.User, error) {
+	for _, u := range f.byID {
+		if u.Email == e {
+			return u, nil
+		}
+	}
+	return nil, nil
+}
+func (f *fakeUsers) FindByPhone(p string) (*usermod.User, error) {
+	for _, u := range f.byID {
+		if u.Phone == p {
+			return u, nil
+		}
+	}
+	return nil, nil
+}
+func (f *fakeUsers) FillProfile(uint, string, string, string) error { return nil }
+
+type fakeTrials struct{ created []uint }
+
+func (f *fakeTrials) CreateTrial(u *usermod.User) error {
+	f.created = append(f.created, u.ID)
+	return nil
+}
 
 func newTestService(t *testing.T) (*Service, *usermod.User) {
 	t.Helper()
@@ -31,7 +73,7 @@ func newTestService(t *testing.T) (*Service, *usermod.User) {
 		JWTRefreshExpDays: 30,
 	}
 	u := &usermod.User{Model: gorm.Model{ID: 42}, Email: "a@example.com"}
-	svc := NewService(cfg, fakeUsers{u}, nil, nil, NewStore(rdb, 30*24*time.Hour))
+	svc := NewService(cfg, newFakeUsers(u), nil, &fakeTrials{}, NewStore(rdb, 30*24*time.Hour))
 	return svc, u
 }
 

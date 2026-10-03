@@ -16,6 +16,9 @@ type Token struct {
 	Access  string    `gorm:"column:access;type:text;not null"`
 	Refresh string    `gorm:"column:refresh;type:text;not null"`
 	Expiry  time.Time `gorm:"not null"`
+	// connected Google account: emails are sent from this address
+	GoogleSub   string
+	GoogleEmail string
 }
 
 func (t *Token) BeforeSave(tx *gorm.DB) (err error) {

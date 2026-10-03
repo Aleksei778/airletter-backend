@@ -55,7 +55,7 @@ func main() {
 	})
 
 	trigger := queue.NewTrigger(a.Queue, time.Duration(cfg.DispatchIntervalSeconds)*time.Second)
-	campaignSvc := campaign.NewService(a.Campaigns, a.Subscriptions, cfg, trigger)
+	campaignSvc := campaign.NewService(a.Campaigns, a.Subscriptions, a.Tokens, cfg, trigger)
 	sheetsSvc := sheets.NewService(a.Tokens)
 
 	srv := &http.Server{

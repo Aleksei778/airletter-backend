@@ -13,7 +13,16 @@ import (
 	"quicksend/internal/user"
 )
 
-var ErrNoSubscription = errors.New("campaign: no active subscription")
+var (
+	ErrNoSubscription = errors.New("campaign: no active subscription")
+	// ErrGmailNotConnected means the user has not granted sending via Gmail
+	ErrGmailNotConnected = errors.New("campaign: gmail is not connected")
+)
+
+// GrantChecker tells whether the user has connected Gmail
+type GrantChecker interface {
+	HasRefreshToken(userID uint) (bool, error)
+}
 
 // ValidationError is returned for invalid user input
 type ValidationError struct{ Msg string }
@@ -54,12 +63,13 @@ type Dispatcher interface {
 type Service struct {
 	repo       *Repository
 	subs       *subscription.Service
+	grants     GrantChecker
 	cfg        *config.Config
 	dispatcher Dispatcher
 }
 
-func NewService(repo *Repository, subs *subscription.Service, cfg *config.Config, d Dispatcher) *Service {
-	return &Service{repo: repo, subs: subs, cfg: cfg, dispatcher: d}
+func NewService(repo *Repository, subs *subscription.Service, grants GrantChecker, cfg *config.Config, d Dispatcher) *Service {
+	return &Service{repo: repo, subs: subs, grants: grants, cfg: cfg, dispatcher: d}
 }
 
 func (s *Service) Create(ctx context.Context, u *user.User, in CreateInput) (*CreateResult, error) {
@@ -69,6 +79,14 @@ func (s *Service) Create(ctx context.Context, u *user.User, in CreateInput) (*Cr
 	}
 	if sub == nil {
 		return nil, ErrNoSubscription
+	}
+
+	connected, err := s.grants.HasRefreshToken(u.ID)
+	if err != nil {
+		return nil, err
+	}
+	if !connected {
+		return nil, ErrGmailNotConnected
 	}
 
 	subject := strings.TrimSpace(in.Subject)

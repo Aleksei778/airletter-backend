@@ -35,3 +35,14 @@ func (r *Repository) FindByEmail(email string) (*User, error) {
 
 	return &user, err
 }
+
+func (r *Repository) FindByPhone(phone string) (*User, error) {
+	var user User
+	err := r.db.Where("phone = ?", phone).First(&user).Error
+
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+
+	return &user, err
+}

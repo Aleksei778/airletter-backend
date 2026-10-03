@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/url"
 	"sync"
 
 	"quicksend/internal/config"
@@ -97,19 +99,23 @@ func (p *persistingSource) Token() (*oauth2.Token, error) {
 // Upsert stores tokens received on login. An empty refresh token does not
 // overwrite the stored one: Google returns it only on the first consent.
 func (svc *Service) Upsert(dto FindOrCreate) (*Token, error) {
-	t, err := svc.repo.FindByUserID(dto.User.ID)
+	t, err := svc.repo.FindByUserID(dto.UserID)
 	if err != nil {
 		return nil, err
 	}
 
 	if t == nil {
-		t = &Token{UserID: dto.User.ID}
+		t = &Token{UserID: dto.UserID}
 	}
 
 	t.Access = dto.Access
 	t.Expiry = dto.Expiry
 	if dto.Refresh != "" {
 		t.Refresh = dto.Refresh
+	}
+	if dto.GoogleSub != "" {
+		t.GoogleSub = dto.GoogleSub
+		t.GoogleEmail = dto.GoogleEmail
 	}
 
 	if err := svc.db.Save(t).Error; err != nil {
@@ -138,4 +144,36 @@ func (svc *Service) Invalidate(userID uint) error {
 	t.Access = ""
 	t.Refresh = ""
 	return svc.db.Save(t).Error
+}
+
+// Account describes the connected Google account
+type Account struct {
+	Connected bool
+	Email     string
+}
+
+// GoogleAccount returns the Google account connected for sending
+func (svc *Service) GoogleAccount(userID uint) (Account, error) {
+	t, err := svc.repo.FindByUserID(userID)
+	if err != nil || t == nil {
+		return Account{}, err
+	}
+	return Account{Connected: t.Refresh != "", Email: t.GoogleEmail}, nil
+}
+
+// Disconnect revokes the grant at Google (best effort) and forgets it
+func (svc *Service) Disconnect(ctx context.Context, userID uint) error {
+	t, err := svc.repo.FindByUserID(userID)
+	if err != nil || t == nil {
+		return err
+	}
+	if t.Refresh != "" {
+		req, _ := http.NewRequestWithContext(ctx, http.MethodPost,
+			"https://oauth2.googleapis.com/revoke?token="+url.QueryEscape(t.Refresh), nil)
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		if resp, err := http.DefaultClient.Do(req); err == nil {
+			resp.Body.Close()
+		}
+	}
+	return svc.Invalidate(userID)
 }

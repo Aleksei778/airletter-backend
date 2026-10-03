@@ -38,11 +38,12 @@ func NewRouter(a *app.App, authSvc *auth.Service, extra ...Routes) *gin.Engine {
 		MaxAge:                 12 * time.Hour,
 	}))
 
-	// short-lived session used only to carry OAuth state through the Google redirect.
-	// SameSite=Lax is required: the callback is a cross-site top-level navigation.
+	// short-lived session used only to carry OAuth and extension sign-in state
+	// through redirects. SameSite=Lax is required: the Google callback is a
+	// cross-site top-level navigation.
 	store := cookie.NewStore([]byte(cfg.SessionSecret))
 	store.Options(sessions.Options{
-		Path:     "/api/auth",
+		Path:     "/api",
 		MaxAge:   600,
 		HttpOnly: true,
 		Secure:   cfg.CookieSecure,
@@ -63,9 +64,9 @@ func NewRouter(a *app.App, authSvc *auth.Service, extra ...Routes) *gin.Engine {
 	})
 
 	api := r.Group("/api")
-	auth.RegisterRoutes(api, authSvc, cfg)
-
 	protected := api.Group("", auth.RequireAccessToken(authSvc))
+	auth.RegisterRoutes(api, protected, authSvc, cfg)
+
 	subscription.RegisterRoutes(protected, a.Subscriptions, a.Redis, auth.CurrentUserID)
 
 	for _, register := range extra {
