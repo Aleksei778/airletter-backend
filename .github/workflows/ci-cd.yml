@@ -111,6 +111,7 @@ jobs:
           set -euo pipefail
           cd '$DEPLOY_PATH'
           chmod 600 .env
+          docker network inspect shared_network >/dev/null 2>&1 || docker network create shared_network
           echo '${{ secrets.GITHUB_TOKEN }}' | docker login ghcr.io -u '${{ github.actor }}' --password-stdin
           docker compose pull app worker
           docker compose up -d --remove-orphans --wait app
