@@ -31,7 +31,6 @@ type userService interface {
 	Create(dto usermod.Create) (*usermod.User, error)
 	FindByID(id uint) (*usermod.User, error)
 	FindByEmail(email string) (*usermod.User, error)
-	FindByPhone(phone string) (*usermod.User, error)
 	FillProfile(id uint, firstName, lastName, picture string) error
 }
 
@@ -66,17 +65,17 @@ func (s *Service) OnGrant(h GrantHook) {
 	s.onGrant = append(s.onGrant, h)
 }
 
-// ---- email / phone + password ----
+// ---- email + password ----
 
 type RegisterInput struct {
-	Login    string
+	Email    string
 	Password string
 	Name     string
 }
 
 // Register creates an account and starts the free trial
 func (s *Service) Register(ctx context.Context, in RegisterInput) (*usermod.User, error) {
-	kind, login, err := ParseLogin(in.Login)
+	email, err := ParseEmail(in.Email)
 	if err != nil {
 		return nil, err
 	}
@@ -85,14 +84,7 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (*usermod.User
 		return nil, err
 	}
 
-	dto := usermod.Create{PasswordHash: hash, FirstName: in.Name}
-	if kind == LoginEmail {
-		dto.Email = login
-	} else {
-		dto.Phone = login
-	}
-
-	u, err := s.userSvc.Create(dto)
+	u, err := s.userSvc.Create(usermod.Create{Email: email, PasswordHash: hash, FirstName: in.Name})
 	if err != nil {
 		return nil, err
 	}
@@ -104,14 +96,14 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (*usermod.User
 	return u, nil
 }
 
-// Login checks the password. Failed attempts are limited per login and per IP.
-func (s *Service) Login(ctx context.Context, rawLogin, password, ip string) (*usermod.User, error) {
-	kind, login, err := ParseLogin(rawLogin)
+// Login checks the password. Failed attempts are limited per email and per IP.
+func (s *Service) Login(ctx context.Context, rawEmail, password, ip string) (*usermod.User, error) {
+	email, err := ParseEmail(rawEmail)
 	if err != nil {
 		return nil, ErrInvalidCredentials
 	}
 
-	blocked, err := s.store.TooManyFailures(ctx, login, ip)
+	blocked, err := s.store.TooManyFailures(ctx, email, ip)
 	if err != nil {
 		return nil, fmt.Errorf("auth: check attempts: %w", err)
 	}
@@ -119,12 +111,7 @@ func (s *Service) Login(ctx context.Context, rawLogin, password, ip string) (*us
 		return nil, ErrTooManyAttempts
 	}
 
-	var u *usermod.User
-	if kind == LoginEmail {
-		u, err = s.userSvc.FindByEmail(login)
-	} else {
-		u, err = s.userSvc.FindByPhone(login)
-	}
+	u, err := s.userSvc.FindByEmail(email)
 	if err != nil {
 		return nil, fmt.Errorf("auth: find user: %w", err)
 	}
@@ -134,11 +121,11 @@ func (s *Service) Login(ctx context.Context, rawLogin, password, ip string) (*us
 		hash = u.PasswordHash
 	}
 	if !checkPassword(hash, password) {
-		s.store.RecordFailure(ctx, login, ip)
+		s.store.RecordFailure(ctx, email, ip)
 		return nil, ErrInvalidCredentials
 	}
 
-	s.store.ResetFailures(ctx, login)
+	s.store.ResetFailures(ctx, email)
 	return u, nil
 }
 

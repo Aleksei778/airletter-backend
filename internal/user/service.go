@@ -8,8 +8,8 @@ import (
 	"gorm.io/gorm"
 )
 
-// ErrLoginTaken means the email or phone is already registered
-var ErrLoginTaken = errors.New("user: login already registered")
+// ErrEmailTaken means the email is already registered
+var ErrEmailTaken = errors.New("user: email already registered")
 
 type Service struct {
 	db   *gorm.DB
@@ -23,7 +23,6 @@ func NewService(db *gorm.DB, r *Repository) *Service {
 func (svc *Service) Create(dto Create) (*User, error) {
 	user := &User{
 		Email:        dto.Email,
-		Phone:        dto.Phone,
 		PasswordHash: dto.PasswordHash,
 		FirstName:    strings.TrimSpace(dto.FirstName),
 	}
@@ -31,7 +30,7 @@ func (svc *Service) Create(dto Create) (*User, error) {
 	if err := svc.db.Create(user).Error; err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" { // unique_violation
-			return nil, ErrLoginTaken
+			return nil, ErrEmailTaken
 		}
 		return nil, err
 	}
@@ -45,10 +44,6 @@ func (svc *Service) FindByID(id uint) (*User, error) {
 
 func (svc *Service) FindByEmail(email string) (*User, error) {
 	return svc.repo.FindByEmail(email)
-}
-
-func (svc *Service) FindByPhone(phone string) (*User, error) {
-	return svc.repo.FindByPhone(phone)
 }
 
 // FillProfile sets name and picture from the connected Google account

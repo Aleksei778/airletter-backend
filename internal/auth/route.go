@@ -59,10 +59,10 @@ func RegisterRoutes(r *gin.RouterGroup, protected *gin.RouterGroup, svc *Service
 	protected.DELETE("/integrations/google", h.googleDisconnect)
 }
 
-// ---- email / phone + password ----
+// ---- email + password ----
 
 type credentials struct {
-	Login    string `json:"login" binding:"required"`
+	Email    string `json:"email" binding:"required"`
 	Password string `json:"password" binding:"required"`
 	Name     string `json:"name"`
 }
@@ -70,20 +70,20 @@ type credentials struct {
 func (h *handler) register(c *gin.Context) {
 	var req credentials
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "login and password are required", "code": "invalid_request"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "email and password are required", "code": "invalid_request"})
 		return
 	}
 
-	u, err := h.svc.Register(c.Request.Context(), RegisterInput{Login: req.Login, Password: req.Password, Name: req.Name})
+	u, err := h.svc.Register(c.Request.Context(), RegisterInput{Email: req.Email, Password: req.Password, Name: req.Name})
 	switch {
-	case errors.Is(err, ErrInvalidLogin):
-		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error(), "code": "invalid_login"})
+	case errors.Is(err, ErrInvalidEmail):
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error(), "code": "invalid_email"})
 		return
 	case errors.Is(err, ErrWeakPassword):
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error(), "code": "weak_password"})
 		return
-	case errors.Is(err, usermod.ErrLoginTaken):
-		c.JSON(http.StatusConflict, gin.H{"error": "this email or phone is already registered", "code": "login_taken"})
+	case errors.Is(err, usermod.ErrEmailTaken):
+		c.JSON(http.StatusConflict, gin.H{"error": "this email is already registered", "code": "email_taken"})
 		return
 	case err != nil:
 		slog.Error("auth: register", "err", err)
@@ -97,14 +97,14 @@ func (h *handler) register(c *gin.Context) {
 func (h *handler) login(c *gin.Context) {
 	var req credentials
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "login and password are required", "code": "invalid_request"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "email and password are required", "code": "invalid_request"})
 		return
 	}
 
-	u, err := h.svc.Login(c.Request.Context(), req.Login, req.Password, c.ClientIP())
+	u, err := h.svc.Login(c.Request.Context(), req.Email, req.Password, c.ClientIP())
 	switch {
 	case errors.Is(err, ErrInvalidCredentials):
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "wrong login or password", "code": "invalid_credentials"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "wrong email or password", "code": "invalid_credentials"})
 		return
 	case errors.Is(err, ErrTooManyAttempts):
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": "too many attempts, try again in 15 minutes", "code": "too_many_attempts"})
@@ -126,7 +126,7 @@ func (h *handler) signIn(c *gin.Context, u *usermod.User, status int) {
 		return
 	}
 	h.setCookies(c, pair)
-	c.JSON(status, gin.H{"user": gin.H{"id": u.ID, "email": u.Email, "phone": u.Phone}})
+	c.JSON(status, gin.H{"user": gin.H{"id": u.ID, "email": u.Email}})
 }
 
 // ---- extension sign-in (runs inside chrome.identity.launchWebAuthFlow) ----

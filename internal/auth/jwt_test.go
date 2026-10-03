@@ -27,11 +27,11 @@ func newFakeUsers(users ...*usermod.User) *fakeUsers {
 
 func (f *fakeUsers) Create(dto usermod.Create) (*usermod.User, error) {
 	for _, u := range f.byID {
-		if (dto.Email != "" && u.Email == dto.Email) || (dto.Phone != "" && u.Phone == dto.Phone) {
-			return nil, usermod.ErrLoginTaken
+		if u.Email == dto.Email {
+			return nil, usermod.ErrEmailTaken
 		}
 	}
-	u := &usermod.User{Model: gorm.Model{ID: uint(len(f.byID) + 100)}, Email: dto.Email, Phone: dto.Phone, PasswordHash: dto.PasswordHash, FirstName: dto.FirstName}
+	u := &usermod.User{Model: gorm.Model{ID: uint(len(f.byID) + 100)}, Email: dto.Email, PasswordHash: dto.PasswordHash, FirstName: dto.FirstName}
 	f.byID[u.ID] = u
 	return u, nil
 }
@@ -39,14 +39,6 @@ func (f *fakeUsers) FindByID(id uint) (*usermod.User, error) { return f.byID[id]
 func (f *fakeUsers) FindByEmail(e string) (*usermod.User, error) {
 	for _, u := range f.byID {
 		if u.Email == e {
-			return u, nil
-		}
-	}
-	return nil, nil
-}
-func (f *fakeUsers) FindByPhone(p string) (*usermod.User, error) {
-	for _, u := range f.byID {
-		if u.Phone == p {
 			return u, nil
 		}
 	}
