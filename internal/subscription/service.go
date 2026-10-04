@@ -1,8 +1,8 @@
 package subscription
 
 import (
+	"airletter/internal/user"
 	"fmt"
-	"quicksend/internal/user"
 	"time"
 )
 

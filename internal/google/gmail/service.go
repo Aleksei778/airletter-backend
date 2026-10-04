@@ -5,7 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 
-	tokenmod "quicksend/internal/token"
+	tokenmod "airletter/internal/token"
 
 	"google.golang.org/api/gmail/v1"
 	"google.golang.org/api/option"

@@ -9,9 +9,9 @@ import (
 	"slices"
 	"strings"
 
-	"quicksend/internal/config"
-	"quicksend/internal/token"
-	usermod "quicksend/internal/user"
+	"airletter/internal/config"
+	"airletter/internal/token"
+	usermod "airletter/internal/user"
 
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"

@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"quicksend/internal/redis"
+	"airletter/internal/redis"
 
 	"github.com/gin-gonic/gin"
 )

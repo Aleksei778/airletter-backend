@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"quicksend/internal/campaign"
+	"airletter/internal/campaign"
 )
 
 func TestBuildMessageFormats(t *testing.T) {

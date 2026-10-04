@@ -8,8 +8,8 @@ import (
 	"net/url"
 	"strconv"
 
-	"quicksend/internal/config"
-	usermod "quicksend/internal/user"
+	"airletter/internal/config"
+	usermod "airletter/internal/user"
 
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"

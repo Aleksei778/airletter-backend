@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"time"
 
-	"quicksend/internal/app"
-	"quicksend/internal/auth"
-	"quicksend/internal/subscription"
+	"airletter/internal/app"
+	"airletter/internal/auth"
+	"airletter/internal/subscription"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-contrib/sessions"

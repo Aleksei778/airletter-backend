@@ -1,9 +1,9 @@
 package token
 
 import (
+	"airletter/internal/crypto"
+	"airletter/internal/user"
 	"fmt"
-	"quicksend/internal/crypto"
-	"quicksend/internal/user"
 	"time"
 
 	"gorm.io/gorm"

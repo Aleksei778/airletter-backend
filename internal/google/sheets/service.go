@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	tokenmod "quicksend/internal/token"
+	tokenmod "airletter/internal/token"
 
 	"google.golang.org/api/option"
 	"google.golang.org/api/sheets/v4"

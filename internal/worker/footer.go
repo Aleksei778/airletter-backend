@@ -5,7 +5,7 @@ import (
 	"html"
 	"regexp"
 
-	"quicksend/internal/mailer"
+	"airletter/internal/mailer"
 )
 
 var footerText = map[string]string{

@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"quicksend/internal/config"
-	usermod "quicksend/internal/user"
+	"airletter/internal/config"
+	usermod "airletter/internal/user"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"

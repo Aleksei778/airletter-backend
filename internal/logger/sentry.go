@@ -1,7 +1,7 @@
 package logger
 
 import (
-	"quicksend/internal/config"
+	"airletter/internal/config"
 
 	"github.com/getsentry/sentry-go"
 )

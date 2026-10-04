@@ -3,7 +3,7 @@ package billing
 import (
 	"testing"
 
-	"quicksend/internal/subscription"
+	"airletter/internal/subscription"
 )
 
 // Same numbers as the website's pricing cards (frontend/src/lib/plans.ts)

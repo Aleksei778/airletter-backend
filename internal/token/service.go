@@ -8,7 +8,7 @@ import (
 	"net/url"
 	"sync"
 
-	"quicksend/internal/config"
+	"airletter/internal/config"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"golang.org/x/oauth2"

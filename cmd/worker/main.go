@@ -11,11 +11,11 @@ import (
 	"syscall"
 	"time"
 
-	"quicksend/internal/app"
-	"quicksend/internal/config"
-	"quicksend/internal/google/gmail"
-	"quicksend/internal/queue"
-	"quicksend/internal/worker"
+	"airletter/internal/app"
+	"airletter/internal/config"
+	"airletter/internal/google/gmail"
+	"airletter/internal/queue"
+	"airletter/internal/worker"
 
 	"github.com/getsentry/sentry-go"
 	"github.com/hibiken/asynq"

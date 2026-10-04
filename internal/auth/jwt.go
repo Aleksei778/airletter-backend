@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	usermod "quicksend/internal/user"
+	usermod "airletter/internal/user"
 
 	"github.com/golang-jwt/jwt/v5"
 )
