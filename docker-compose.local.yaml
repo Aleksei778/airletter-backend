@@ -30,26 +30,8 @@ services:
     networks:
       default:
 
-  nginx:
-    build:
-      context: .
-      dockerfile: docker/nginx/Dockerfile
-    container_name: airletter_nginx
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf
-    depends_on:
-      - app
-    restart: unless-stopped
-    networks:
-      default:
-
   db:
-    build:
-      context: .
-      dockerfile: ./docker/db/Dockerfile
+    image: postgres:17
     container_name: airletter_postgres
     ports:
       - "5433:5432"
