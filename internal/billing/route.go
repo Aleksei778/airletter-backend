@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"time"
 
-	"quicksend/internal/subscription"
-	"quicksend/internal/user"
+	"airletter/internal/subscription"
+	"airletter/internal/user"
 
 	"github.com/gin-gonic/gin"
 )

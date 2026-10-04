@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"testing"
 
-	"quicksend/internal/token"
+	"airletter/internal/token"
 
 	"golang.org/x/oauth2"
 	"google.golang.org/api/googleapi"

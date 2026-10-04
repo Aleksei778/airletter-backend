@@ -4,7 +4,7 @@ import (
 	"errors"
 	"net"
 
-	"quicksend/internal/token"
+	"airletter/internal/token"
 
 	"google.golang.org/api/googleapi"
 )

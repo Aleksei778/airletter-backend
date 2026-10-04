@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"quicksend/internal/token"
+	"airletter/internal/token"
 
 	"github.com/gin-gonic/gin"
 	"google.golang.org/api/googleapi"

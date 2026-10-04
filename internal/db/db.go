@@ -7,8 +7,8 @@ import (
 	"net/url"
 	"strconv"
 
-	"quicksend/internal/config"
-	"quicksend/migrations"
+	"airletter/internal/config"
+	"airletter/migrations"
 
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/pgx/v5" // registers the pgx5:// driver

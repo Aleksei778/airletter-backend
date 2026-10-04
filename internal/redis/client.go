@@ -1,10 +1,10 @@
 package redis
 
 import (
+	"airletter/internal/config"
 	"context"
 	"errors"
 	"fmt"
-	"quicksend/internal/config"
 	"time"
 
 	"github.com/redis/go-redis/v9"

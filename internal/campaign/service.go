@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"quicksend/internal/config"
-	"quicksend/internal/subscription"
-	"quicksend/internal/user"
+	"airletter/internal/config"
+	"airletter/internal/subscription"
+	"airletter/internal/user"
 )
 
 var (

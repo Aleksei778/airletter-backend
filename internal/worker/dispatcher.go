@@ -8,11 +8,11 @@ import (
 	"math/rand/v2"
 	"time"
 
-	"quicksend/internal/campaign"
-	"quicksend/internal/config"
-	"quicksend/internal/queue"
-	"quicksend/internal/redis"
-	"quicksend/internal/subscription"
+	"airletter/internal/campaign"
+	"airletter/internal/config"
+	"airletter/internal/queue"
+	"airletter/internal/redis"
+	"airletter/internal/subscription"
 
 	"github.com/hibiken/asynq"
 )

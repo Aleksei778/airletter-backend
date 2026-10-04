@@ -13,16 +13,16 @@ import (
 
 	_ "time/tzdata" // timezones for scheduling; the alpine image has no zoneinfo
 
-	"quicksend/internal/app"
-	"quicksend/internal/auth"
-	"quicksend/internal/billing"
-	"quicksend/internal/campaign"
-	"quicksend/internal/config"
-	"quicksend/internal/db"
-	"quicksend/internal/google/sheets"
-	"quicksend/internal/httpapi"
-	"quicksend/internal/queue"
-	"quicksend/internal/subscription"
+	"airletter/internal/app"
+	"airletter/internal/auth"
+	"airletter/internal/billing"
+	"airletter/internal/campaign"
+	"airletter/internal/config"
+	"airletter/internal/db"
+	"airletter/internal/google/sheets"
+	"airletter/internal/httpapi"
+	"airletter/internal/queue"
+	"airletter/internal/subscription"
 
 	"github.com/getsentry/sentry-go"
 	"github.com/gin-gonic/gin"

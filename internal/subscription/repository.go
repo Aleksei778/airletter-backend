@@ -1,8 +1,8 @@
 package subscription
 
 import (
+	"airletter/internal/user"
 	"errors"
-	"quicksend/internal/user"
 	"time"
 
 	"gorm.io/gorm"

@@ -235,7 +235,7 @@ func writeHeader(buf *bytes.Buffer, key, value string) {
 }
 
 func newMessageID(from string) string {
-	domain := "quicksend.local"
+	domain := "airletter.local"
 	if i := strings.LastIndex(from, "@"); i >= 0 {
 		domain = from[i+1:]
 	}

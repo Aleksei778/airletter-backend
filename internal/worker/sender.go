@@ -7,13 +7,13 @@ import (
 	"log/slog"
 	"net/mail"
 
-	"quicksend/internal/campaign"
-	"quicksend/internal/google/gmail"
-	"quicksend/internal/mailer"
-	"quicksend/internal/queue"
-	"quicksend/internal/redis"
-	"quicksend/internal/token"
-	"quicksend/internal/user"
+	"airletter/internal/campaign"
+	"airletter/internal/google/gmail"
+	"airletter/internal/mailer"
+	"airletter/internal/queue"
+	"airletter/internal/redis"
+	"airletter/internal/token"
+	"airletter/internal/user"
 
 	"github.com/hibiken/asynq"
 )

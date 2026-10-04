@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"math"
 
-	"quicksend/internal/subscription"
+	"airletter/internal/subscription"
 )
 
 // Prices must match the website (frontend/src/lib/plans.ts): the website

@@ -3,7 +3,7 @@ package subscription
 import (
 	"time"
 
-	"quicksend/internal/user"
+	"airletter/internal/user"
 
 	"gorm.io/gorm"
 )
