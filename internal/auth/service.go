@@ -25,6 +25,11 @@ var (
 	ErrMissingScopes = errors.New("auth: required google scopes were not granted")
 	// ErrConsentRequired means Google did not return a refresh token and we have none stored
 	ErrConsentRequired = errors.New("auth: offline consent required")
+	// ErrGoogleAccountMismatch means the user picked a Google account other
+	// than the one already bound to their account
+	ErrGoogleAccountMismatch = errors.New("auth: another google account is bound")
+	// ErrGoogleAccountTaken means the Google account is bound to another user
+	ErrGoogleAccountTaken = token.ErrGoogleAccountTaken
 )
 
 type userService interface {
@@ -143,12 +148,17 @@ func (s *Service) oauthConfig() *oauth2.Config {
 
 // GoogleAuthURL builds the consent URL. forceConsent is needed to receive a
 // refresh token when the account has already granted access before.
-func (s *Service) GoogleAuthURL(state string, forceConsent bool) string {
+// loginHint preselects the Google account already bound to the user.
+func (s *Service) GoogleAuthURL(state string, forceConsent bool, loginHint string) string {
 	prompt := "select_account"
 	if forceConsent {
 		prompt = "consent"
 	}
-	return s.oauthConfig().AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.SetAuthURLParam("prompt", prompt))
+	opts := []oauth2.AuthCodeOption{oauth2.AccessTypeOffline, oauth2.SetAuthURLParam("prompt", prompt)}
+	if loginHint != "" {
+		opts = append(opts, oauth2.SetAuthURLParam("login_hint", loginHint))
+	}
+	return s.oauthConfig().AuthCodeURL(state, opts...)
 }
 
 // ConnectGoogle exchanges the code and stores the grant for the user
@@ -163,19 +173,33 @@ func (s *Service) ConnectGoogle(ctx context.Context, userID uint, code string) e
 		return ErrMissingScopes
 	}
 
-	if oauthToken.RefreshToken == "" {
-		has, err := s.tokenSvc.HasRefreshToken(userID)
-		if err != nil {
-			return fmt.Errorf("auth: check refresh token: %w", err)
-		}
-		if !has {
-			return ErrConsentRequired
-		}
-	}
-
 	info, err := userInfo(ctx, oauthToken)
 	if err != nil {
 		return fmt.Errorf("auth: user info: %w", err)
+	}
+
+	// the first connected Google account stays bound to the user for good
+	acc, err := s.tokenSvc.GoogleAccount(userID)
+	if err != nil {
+		return fmt.Errorf("auth: google account: %w", err)
+	}
+	// the grant is not revoked here: revoking drops it for the whole Google
+	// account, which may be in use by another user
+	if acc.Sub != "" && acc.Sub != info.Id {
+		return ErrGoogleAccountMismatch
+	}
+
+	// one Google account per user, so new sign-ups cannot reuse it for another trial
+	taken, err := s.tokenSvc.GoogleAccountTaken(info.Id, userID)
+	if err != nil {
+		return fmt.Errorf("auth: check google account: %w", err)
+	}
+	if taken {
+		return ErrGoogleAccountTaken
+	}
+
+	if oauthToken.RefreshToken == "" && !acc.Connected {
+		return ErrConsentRequired
 	}
 
 	if _, err := s.tokenSvc.Upsert(token.FindOrCreate{
@@ -185,7 +209,9 @@ func (s *Service) ConnectGoogle(ctx context.Context, userID uint, code string) e
 		Expiry:      oauthToken.Expiry,
 		GoogleSub:   info.Id,
 		GoogleEmail: strings.ToLower(info.Email),
-	}); err != nil {
+	}); errors.Is(err, token.ErrGoogleAccountTaken) {
+		return ErrGoogleAccountTaken
+	} else if err != nil {
 		return fmt.Errorf("auth: save google token: %w", err)
 	}
 

@@ -24,3 +24,14 @@ func (r *Repository) FindByUserID(userID uint) (*Token, error) {
 
 	return &token, err
 }
+
+func (r *Repository) FindByGoogleSub(sub string) (*Token, error) {
+	var token Token
+	err := r.db.Where("google_sub = ?", sub).First(&token).Error
+
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+
+	return &token, err
+}
