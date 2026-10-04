@@ -10,6 +10,7 @@ import (
 
 	"quicksend/internal/config"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"gorm.io/gorm"
@@ -17,6 +18,9 @@ import (
 
 // ErrNoToken means the user never granted offline access (or it was removed)
 var ErrNoToken = errors.New("token: google token not found")
+
+// ErrGoogleAccountTaken means the Google account is bound to another user
+var ErrGoogleAccountTaken = errors.New("token: google account is bound to another user")
 
 type Service struct {
 	db   *gorm.DB
@@ -119,10 +123,24 @@ func (svc *Service) Upsert(dto FindOrCreate) (*Token, error) {
 	}
 
 	if err := svc.db.Save(t).Error; err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "idx_tokens_google_sub" {
+			return nil, ErrGoogleAccountTaken
+		}
 		return nil, err
 	}
 
 	return t, nil
+}
+
+// GoogleAccountTaken reports whether the Google account is bound to a user
+// other than userID
+func (svc *Service) GoogleAccountTaken(sub string, userID uint) (bool, error) {
+	t, err := svc.repo.FindByGoogleSub(sub)
+	if err != nil {
+		return false, err
+	}
+	return t != nil && t.UserID != userID, nil
 }
 
 // HasRefreshToken reports whether offline access is already stored for the user
@@ -150,6 +168,9 @@ func (svc *Service) Invalidate(userID uint) error {
 type Account struct {
 	Connected bool
 	Email     string
+	// Sub is the Google account bound to the user on the first connect; it is
+	// kept after a disconnect, so only the same account can be connected again
+	Sub string
 }
 
 // GoogleAccount returns the Google account connected for sending
@@ -158,7 +179,7 @@ func (svc *Service) GoogleAccount(userID uint) (Account, error) {
 	if err != nil || t == nil {
 		return Account{}, err
 	}
-	return Account{Connected: t.Refresh != "", Email: t.GoogleEmail}, nil
+	return Account{Connected: t.Refresh != "", Email: t.GoogleEmail, Sub: t.GoogleSub}, nil
 }
 
 // Disconnect revokes the grant at Google (best effort) and forgets it
@@ -168,12 +189,17 @@ func (svc *Service) Disconnect(ctx context.Context, userID uint) error {
 		return err
 	}
 	if t.Refresh != "" {
-		req, _ := http.NewRequestWithContext(ctx, http.MethodPost,
-			"https://oauth2.googleapis.com/revoke?token="+url.QueryEscape(t.Refresh), nil)
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		if resp, err := http.DefaultClient.Do(req); err == nil {
-			resp.Body.Close()
-		}
+		Revoke(ctx, t.Refresh)
 	}
 	return svc.Invalidate(userID)
+}
+
+// Revoke revokes a Google grant by its access or refresh token (best effort)
+func Revoke(ctx context.Context, tok string) {
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost,
+		"https://oauth2.googleapis.com/revoke?token="+url.QueryEscape(tok), nil)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if resp, err := http.DefaultClient.Do(req); err == nil {
+		resp.Body.Close()
+	}
 }

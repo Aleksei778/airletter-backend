@@ -228,7 +228,13 @@ func (h *handler) startGoogle(c *gin.Context, userID uint, flow string, forceCon
 		return
 	}
 
-	c.Redirect(http.StatusFound, h.svc.GoogleAuthURL(state, forceConsent))
+	// only the bound Google account can be connected, so offer it right away
+	acc, err := h.svc.tokenSvc.GoogleAccount(userID)
+	if err != nil {
+		slog.Error("auth: google account", "err", err, "user_id", userID)
+	}
+
+	c.Redirect(http.StatusFound, h.svc.GoogleAuthURL(state, forceConsent, acc.Email))
 }
 
 func (h *handler) googleCallback(c *gin.Context) {
@@ -268,6 +274,12 @@ func (h *handler) googleCallback(c *gin.Context) {
 	case errors.Is(err, ErrMissingScopes):
 		fail("missing_scopes")
 		return
+	case errors.Is(err, ErrGoogleAccountMismatch):
+		fail("google_account_mismatch")
+		return
+	case errors.Is(err, ErrGoogleAccountTaken):
+		fail("google_account_taken")
+		return
 	case err != nil:
 		slog.Error("auth: connect google", "err", err)
 		fail("server_error")
@@ -288,7 +300,8 @@ func (h *handler) googleStatus(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"connected": acc.Connected, "email": acc.Email})
+	// bound: email is the only Google account the user can connect, even when disconnected
+	c.JSON(http.StatusOK, gin.H{"connected": acc.Connected, "email": acc.Email, "bound": acc.Sub != ""})
 }
 
 func (h *handler) googleDisconnect(c *gin.Context) {
