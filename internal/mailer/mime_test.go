@@ -166,3 +166,23 @@ func TestHTMLToTextSkipsHeadAndStyles(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+func TestBuildListUnsubscribe(t *testing.T) {
+	raw, err := Build(Message{
+		From: mail.Address{Address: "me@example.com"}, To: "bob@example.com", Subject: "s", Text: "hi",
+		UnsubscribeURL: "https://airletter.test/api/unsubscribe/tok",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg, err := mail.ReadMessage(strings.NewReader(string(raw)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := msg.Header.Get("List-Unsubscribe"); got != "<https://airletter.test/api/unsubscribe/tok>" {
+		t.Errorf("List-Unsubscribe = %q", got)
+	}
+	if got := msg.Header.Get("List-Unsubscribe-Post"); got != "List-Unsubscribe=One-Click" {
+		t.Errorf("List-Unsubscribe-Post = %q", got)
+	}
+}
