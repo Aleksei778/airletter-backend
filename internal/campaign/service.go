@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/mail"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -62,6 +63,8 @@ type CreateResult struct {
 	Campaign *Campaign
 	// Skipped are recipients that are not valid email addresses
 	Skipped []string
+	// Unsubscribed are addresses that asked the user to stop emailing them
+	Unsubscribed []string
 }
 
 // Dispatcher triggers releasing pending recipients right away instead of
@@ -123,6 +126,22 @@ func (s *Service) Create(ctx context.Context, u *user.User, in CreateInput) (*Cr
 	if len(emails) == 0 {
 		return nil, invalid("no valid recipients")
 	}
+
+	stopped, err := s.repo.UnsubscribedAmong(ctx, u.ID, emails)
+	if err != nil {
+		return nil, fmt.Errorf("campaign: unsubscribes: %w", err)
+	}
+	var unsubscribed []string
+	emails = slices.DeleteFunc(emails, func(e string) bool {
+		_, ok := stopped[e]
+		if ok {
+			unsubscribed = append(unsubscribed, e)
+		}
+		return ok
+	})
+	if len(emails) == 0 {
+		return nil, invalid("all recipients have unsubscribed from your emails")
+	}
 	if len(emails) > s.cfg.MaxRecipientsPerCampaign {
 		return nil, invalid("too many recipients: %d, max %d", len(emails), s.cfg.MaxRecipientsPerCampaign)
 	}
@@ -182,7 +201,7 @@ func (s *Service) Create(ctx context.Context, u *user.User, in CreateInput) (*Cr
 		_ = s.dispatcher.TriggerDispatch(ctx)
 	}
 
-	return &CreateResult{Campaign: c, Skipped: skipped}, nil
+	return &CreateResult{Campaign: c, Skipped: skipped, Unsubscribed: unsubscribed}, nil
 }
 
 // NormalizeRecipients lowercases, validates and de-duplicates emails.

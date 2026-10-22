@@ -34,6 +34,8 @@ const (
 	RecipientSent      RecipientStatus = "sent"
 	RecipientFailed    RecipientStatus = "failed"
 	RecipientCancelled RecipientStatus = "cancelled"
+	// the address unsubscribed from the sender before this email went out
+	RecipientUnsubscribed RecipientStatus = "unsubscribed"
 )
 
 // Pause reasons shown to the user
@@ -89,10 +91,21 @@ type Attachment struct {
 	CreatedAt time.Time
 }
 
+// Unsubscribe is an address that asked the user (the sender) to stop emailing it
+type Unsubscribe struct {
+	ID         uint   `gorm:"primaryKey"`
+	UserID     uint   `gorm:"not null;uniqueIndex:idx_unsubscribes_user_email"`
+	Email      string `gorm:"not null;uniqueIndex:idx_unsubscribes_user_email"`
+	CampaignID *uint
+	CreatedAt  time.Time
+}
+
 // Stats is a per-status count of recipients
 type Stats struct {
 	Total   int64 `json:"total"`
 	Pending int64 `json:"pending"`
 	Sent    int64 `json:"sent"`
 	Failed  int64 `json:"failed"`
+	// not sent because the address unsubscribed from the sender
+	Unsubscribed int64 `json:"unsubscribed"`
 }

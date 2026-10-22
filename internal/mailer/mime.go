@@ -41,6 +41,9 @@ type Message struct {
 	Text        string
 	Inline      []Inline
 	Attachments []Attachment
+	// UnsubscribeURL accepts RFC 8058 one-click POSTs; when set, mail
+	// providers show their own "Unsubscribe" button next to the sender
+	UnsubscribeURL string
 }
 
 // Build renders the message as RFC 2822 bytes ready for Gmail API messages.send.
@@ -59,6 +62,10 @@ func Build(m Message) ([]byte, error) {
 	writeHeader(&buf, "Date", time.Now().UTC().Format(time.RFC1123Z))
 	writeHeader(&buf, "Message-ID", newMessageID(m.From.Address))
 	writeHeader(&buf, "MIME-Version", "1.0")
+	if m.UnsubscribeURL != "" {
+		writeHeader(&buf, "List-Unsubscribe", "<"+m.UnsubscribeURL+">")
+		writeHeader(&buf, "List-Unsubscribe-Post", "List-Unsubscribe=One-Click")
+	}
 
 	bodyType, body, err := renderBody(m)
 	if err != nil {

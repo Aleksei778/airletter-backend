@@ -25,12 +25,14 @@ type Sender struct {
 	tokens    *token.Service
 	gmail     *gmail.Service
 	redis     *redis.Client
-	// public site address for the trial footer link
+	// public site address for the footer links
 	siteURL string
+	// signs unsubscribe links
+	unsubKey []byte
 }
 
-func NewSender(campaigns *campaign.Repository, users *user.Service, tokens *token.Service, gm *gmail.Service, rdb *redis.Client, siteURL string) *Sender {
-	return &Sender{campaigns: campaigns, users: users, tokens: tokens, gmail: gm, redis: rdb, siteURL: siteURL}
+func NewSender(campaigns *campaign.Repository, users *user.Service, tokens *token.Service, gm *gmail.Service, rdb *redis.Client, siteURL string, unsubKey []byte) *Sender {
+	return &Sender{campaigns: campaigns, users: users, tokens: tokens, gmail: gm, redis: rdb, siteURL: siteURL, unsubKey: unsubKey}
 }
 
 func (s *Sender) Handle(ctx context.Context, t *asynq.Task) error {
@@ -65,6 +67,15 @@ func (s *Sender) Handle(ctx context.Context, t *asynq.Task) error {
 		return s.campaigns.SetRecipientStatus(ctx, rec.ID, campaign.RecipientPending)
 	}
 
+	// the address may have unsubscribed after the campaign was created
+	unsubscribed, err := s.campaigns.IsUnsubscribed(ctx, rec.UserID, rec.Email)
+	if err != nil {
+		return fmt.Errorf("sender: check unsubscribe: %w", err)
+	}
+	if unsubscribed {
+		return s.campaigns.SetRecipientStatus(ctx, rec.ID, campaign.RecipientUnsubscribed)
+	}
+
 	u, err := s.users.FindByID(c.UserID)
 	if err != nil || u == nil {
 		return fmt.Errorf("sender: find user %d: %v", c.UserID, err)
@@ -80,7 +91,7 @@ func (s *Sender) Handle(ctx context.Context, t *asynq.Task) error {
 		from = u.Email
 	}
 
-	raw, err := mailer.Build(buildMessage(c, from, rec.Email, s.siteURL))
+	raw, err := mailer.Build(buildMessage(c, from, rec.Email, s.siteURL, campaign.UnsubscribeToken(s.unsubKey, rec.ID)))
 	if err != nil {
 		_ = s.campaigns.MarkFailed(ctx, rec.ID, "build message: "+err.Error())
 		return fmt.Errorf("sender: build message: %v: %w", err, asynq.SkipRetry)
@@ -131,11 +142,14 @@ func (s *Sender) handleSendError(ctx context.Context, sendErr error, userID, rec
 	}
 }
 
-func buildMessage(c *campaign.Campaign, from, to, siteURL string) mailer.Message {
+// buildMessage renders the campaign for one recipient. Every email carries an
+// unsubscribe link and List-Unsubscribe headers; unsubToken identifies the recipient.
+func buildMessage(c *campaign.Campaign, from, to, siteURL, unsubToken string) mailer.Message {
 	m := mailer.Message{
-		From:    mail.Address{Name: c.SenderName, Address: from},
-		To:      to,
-		Subject: c.Subject,
+		From:           mail.Address{Name: c.SenderName, Address: from},
+		To:             to,
+		Subject:        c.Subject,
+		UnsubscribeURL: siteURL + "/api/unsubscribe/" + unsubToken,
 	}
 	if c.BodyFormat == campaign.FormatText {
 		m.Text = c.Body
@@ -150,8 +164,6 @@ func buildMessage(c *campaign.Campaign, from, to, siteURL string) mailer.Message
 		}
 		m.Attachments = append(m.Attachments, mailer.Attachment{Filename: a.Filename, MimeType: a.MimeType, Content: a.Content})
 	}
-	if c.Branded {
-		addFooter(&m, c.Locale, siteURL)
-	}
+	addFooter(&m, c.Locale, siteURL, unsubToken, c.Branded)
 	return m
 }

@@ -110,6 +110,8 @@ func (r *Repository) StatsByCampaign(ctx context.Context, ids []uint) (map[uint]
 			s.Sent += row.Count
 		case RecipientFailed:
 			s.Failed += row.Count
+		case RecipientUnsubscribed:
+			s.Unsubscribed += row.Count
 		case RecipientPending, RecipientQueued, RecipientSending:
 			s.Pending += row.Count
 		}
