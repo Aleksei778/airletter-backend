@@ -1,6 +1,8 @@
 package config
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
 	"fmt"
 
 	"github.com/caarlos0/env/v11"
@@ -76,6 +78,13 @@ type Config struct {
 
 func (c *Config) ExtensionOrigin() string {
 	return "chrome-extension://" + c.ExtensionID
+}
+
+// UnsubscribeKey signs unsubscribe links; derived so no extra secret is needed
+func (c *Config) UnsubscribeKey() []byte {
+	m := hmac.New(sha256.New, []byte(c.EncryptionKey))
+	m.Write([]byte("airletter unsubscribe links"))
+	return m.Sum(nil)
 }
 
 func (c *Config) DSN() string {

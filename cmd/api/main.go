@@ -70,7 +70,10 @@ func main() {
 	srv := &http.Server{
 		Addr: ":" + cfg.Port,
 		Handler: httpapi.NewRouter(a, authSvc,
-			func(_, r *gin.RouterGroup) { campaign.RegisterRoutes(r, campaignSvc, a.Users, auth.CurrentUserID) },
+			func(pub, r *gin.RouterGroup) {
+				campaign.RegisterRoutes(r, campaignSvc, a.Users, auth.CurrentUserID)
+				campaign.RegisterUnsubscribeRoutes(pub, campaignSvc, cfg.UnsubscribeKey())
+			},
 			func(_, r *gin.RouterGroup) {
 				// trial users add recipients by hand; import is a paid feature
 				paid := r.Group("", subscription.RequirePaid(a.Subscriptions, auth.CurrentUserID))

@@ -146,8 +146,9 @@ func (h *handler) create(c *gin.Context) {
 
 	stats := Stats{Total: int64(len(res.Campaign.Recipients)), Pending: int64(len(res.Campaign.Recipients))}
 	c.JSON(http.StatusCreated, gin.H{
-		"campaign": toResponse(WithStats{Campaign: *res.Campaign, Stats: stats}),
-		"skipped":  nonNil(res.Skipped),
+		"campaign":     toResponse(WithStats{Campaign: *res.Campaign, Stats: stats}),
+		"skipped":      nonNil(res.Skipped),
+		"unsubscribed": nonNil(res.Unsubscribed),
 	})
 }
 
@@ -260,4 +261,37 @@ func nonNil(s []string) []string {
 		return []string{}
 	}
 	return s
+}
+
+// RegisterUnsubscribeRoutes mounts the public endpoints behind unsubscribe
+// links. POST also serves RFC 8058 one-click requests sent by mail providers.
+func RegisterUnsubscribeRoutes(r *gin.RouterGroup, svc *Service, key []byte) {
+	r.GET("/unsubscribe/:token", func(c *gin.Context) {
+		info, err := svc.UnsubscribeInfo(c.Request.Context(), key, c.Param("token"))
+		if !unsubscribeOK(c, err) {
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"email": info.Email, "sender": info.Sender, "unsubscribed": info.Unsubscribed})
+	})
+
+	r.POST("/unsubscribe/:token", func(c *gin.Context) {
+		err := svc.Unsubscribe(c.Request.Context(), key, c.Param("token"))
+		if !unsubscribeOK(c, err) {
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"unsubscribed": true})
+	})
+}
+
+func unsubscribeOK(c *gin.Context, err error) bool {
+	switch {
+	case errors.Is(err, ErrInvalidToken), errors.Is(err, ErrNotFound):
+		c.JSON(http.StatusNotFound, gin.H{"error": "invalid unsubscribe link", "code": "invalid_link"})
+		return false
+	case err != nil:
+		slog.Error("campaign: unsubscribe", "err", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		return false
+	}
+	return true
 }

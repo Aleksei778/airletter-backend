@@ -46,3 +46,20 @@ func TestParseSchedule(t *testing.T) {
 		}
 	}
 }
+
+func TestUnsubscribeToken(t *testing.T) {
+	key := []byte("k1")
+	tok := UnsubscribeToken(key, 42)
+	if id, err := ParseUnsubscribeToken(key, tok); err != nil || id != 42 {
+		t.Fatalf("parse = %d, %v", id, err)
+	}
+	if _, err := ParseUnsubscribeToken([]byte("k2"), tok); !errors.Is(err, ErrInvalidToken) {
+		t.Errorf("other key: %v", err)
+	}
+	forged := UnsubscribeToken(key, 43)[:11] + tok[11:]
+	for _, bad := range []string{"", "abc", forged, tok + "A"} {
+		if _, err := ParseUnsubscribeToken(key, bad); !errors.Is(err, ErrInvalidToken) {
+			t.Errorf("%q: %v", bad, err)
+		}
+	}
+}
