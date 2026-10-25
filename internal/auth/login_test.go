@@ -92,3 +92,20 @@ func TestLoginThrottling(t *testing.T) {
 		t.Fatalf("got %v, want ErrTooManyAttempts", err)
 	}
 }
+
+func TestSameEmail(t *testing.T) {
+	for _, c := range []struct {
+		a, b string
+		want bool
+	}{
+		{"Ivan@Example.com", "ivan@example.com", true},
+		{"ivan.petrov@gmail.com", "IvanPetrov@gmail.com", true},
+		{"ivan+news@googlemail.com", "ivan@gmail.com", true},
+		{"ivan.petrov@example.com", "ivanpetrov@example.com", false},
+		{"ivan@gmail.com", "petr@gmail.com", false},
+	} {
+		if got := SameEmail(c.a, c.b); got != c.want {
+			t.Errorf("SameEmail(%q, %q) = %v, want %v", c.a, c.b, got, c.want)
+		}
+	}
+}
