@@ -44,8 +44,13 @@ type Config struct {
 	// Google
 	GoogleClientID     string `env:"GOOGLE_CLIENT_ID,required"`
 	GoogleClientSecret string `env:"GOOGLE_CLIENT_SECRET,required"`
-	WebsiteScopes      []string
-	ExtensionScopes    []string
+	// Google Picker on the website: the browser API key (restricted to the
+	// Picker API and the site) and the Cloud project number. Picking a file
+	// with the project number is what grants drive.file access to it.
+	GooglePickerAPIKey  string `env:"GOOGLE_PICKER_API_KEY"`
+	GoogleProjectNumber string `env:"GOOGLE_PROJECT_NUMBER"`
+	WebsiteScopes       []string
+	ExtensionScopes     []string
 
 	// App
 	FrontendURL string `env:"FRONTEND_URL,required"`
@@ -110,7 +115,8 @@ func Load() (*Config, error) {
 			"https://www.googleapis.com/auth/userinfo.email",
 			"https://www.googleapis.com/auth/userinfo.profile",
 			"https://www.googleapis.com/auth/gmail.send",
-			"https://www.googleapis.com/auth/spreadsheets.readonly",
+			// only files the user picks in Google Picker, see internal/google/sheets
+			"https://www.googleapis.com/auth/drive.file",
 		},
 	}
 	if err := env.Parse(cfg); err != nil {
