@@ -25,9 +25,9 @@ var (
 	ErrMissingScopes = errors.New("auth: required google scopes were not granted")
 	// ErrConsentRequired means Google did not return a refresh token and we have none stored
 	ErrConsentRequired = errors.New("auth: offline consent required")
-	// ErrGoogleAccountMismatch means the user picked a Google account other
-	// than the one already bound to their account
-	ErrGoogleAccountMismatch = errors.New("auth: another google account is bound")
+	// ErrGoogleAccountMismatch means the Google account's address differs
+	// from the email the user signed up with
+	ErrGoogleAccountMismatch = errors.New("auth: google account does not match the user's email")
 	// ErrGoogleAccountTaken means the Google account is bound to another user
 	ErrGoogleAccountTaken = token.ErrGoogleAccountTaken
 )
@@ -82,6 +82,10 @@ type RegisterInput struct {
 func (s *Service) Register(ctx context.Context, in RegisterInput) (*usermod.User, error) {
 	email, err := ParseEmail(in.Email)
 	if err != nil {
+		return nil, err
+	}
+	// the sign-up email is the only address the user can send from
+	if err := requireGmail(ctx, email); err != nil {
 		return nil, err
 	}
 	hash, err := HashPassword(in.Password)
@@ -148,7 +152,7 @@ func (s *Service) oauthConfig() *oauth2.Config {
 
 // GoogleAuthURL builds the consent URL. forceConsent is needed to receive a
 // refresh token when the account has already granted access before.
-// loginHint preselects the Google account already bound to the user.
+// loginHint preselects the Google account matching the user's email.
 func (s *Service) GoogleAuthURL(state string, forceConsent bool, loginHint string) string {
 	prompt := "select_account"
 	if forceConsent {
@@ -178,15 +182,25 @@ func (s *Service) ConnectGoogle(ctx context.Context, userID uint, code string) e
 		return fmt.Errorf("auth: user info: %w", err)
 	}
 
-	// the first connected Google account stays bound to the user for good
+	// only the address the user signed up with can send: registration stays
+	// email + password, Google is never a way to create an account.
+	// The grant is not revoked on a mismatch: revoking drops it for the whole
+	// Google account, which may be in use by another user
+	u, err := s.userSvc.FindByID(userID)
+	if err != nil {
+		return fmt.Errorf("auth: find user: %w", err)
+	}
+	// accounts created before this rule may have a non-Gmail email
+	if err := requireGmail(ctx, u.Email); err != nil {
+		return err
+	}
+	if !SameEmail(info.Email, u.Email) || (info.VerifiedEmail != nil && !*info.VerifiedEmail) {
+		return ErrGoogleAccountMismatch
+	}
+
 	acc, err := s.tokenSvc.GoogleAccount(userID)
 	if err != nil {
 		return fmt.Errorf("auth: google account: %w", err)
-	}
-	// the grant is not revoked here: revoking drops it for the whole Google
-	// account, which may be in use by another user
-	if acc.Sub != "" && acc.Sub != info.Id {
-		return ErrGoogleAccountMismatch
 	}
 
 	// one Google account per user, so new sign-ups cannot reuse it for another trial
@@ -261,6 +275,22 @@ func (s *Service) ExchangeLoginCode(ctx context.Context, code string) (*TokenPai
 	}
 
 	return s.IssuePair(ctx, u)
+}
+
+// SameEmail compares addresses case-insensitively; for Gmail it also ignores
+// dots and a +tag in the local part, which Gmail delivers to the same mailbox
+func SameEmail(a, b string) bool {
+	return canonicalEmail(a) == canonicalEmail(b)
+}
+
+func canonicalEmail(email string) string {
+	email = strings.ToLower(strings.TrimSpace(email))
+	local, domain, ok := strings.Cut(email, "@")
+	if !ok || (domain != "gmail.com" && domain != "googlemail.com") {
+		return email
+	}
+	local, _, _ = strings.Cut(local, "+")
+	return strings.ReplaceAll(local, ".", "") + "@gmail.com"
 }
 
 func userInfo(ctx context.Context, t *oauth2.Token) (*googleoauth.Userinfo, error) {

@@ -79,6 +79,9 @@ func (h *handler) register(c *gin.Context) {
 	case errors.Is(err, ErrInvalidEmail):
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error(), "code": "invalid_email"})
 		return
+	case errors.Is(err, ErrNotGmail):
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error(), "code": "not_gmail"})
+		return
 	case errors.Is(err, ErrWeakPassword):
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error(), "code": "weak_password"})
 		return
@@ -228,13 +231,15 @@ func (h *handler) startGoogle(c *gin.Context, userID uint, flow string, forceCon
 		return
 	}
 
-	// only the bound Google account can be connected, so offer it right away
-	acc, err := h.svc.tokenSvc.GoogleAccount(userID)
-	if err != nil {
-		slog.Error("auth: google account", "err", err, "user_id", userID)
+	// only the address the user signed up with can be connected, so offer it right away
+	var hint string
+	if u, err := h.svc.userSvc.FindByID(userID); err != nil {
+		slog.Error("auth: find user", "err", err, "user_id", userID)
+	} else {
+		hint = u.Email
 	}
 
-	c.Redirect(http.StatusFound, h.svc.GoogleAuthURL(state, forceConsent, acc.Email))
+	c.Redirect(http.StatusFound, h.svc.GoogleAuthURL(state, forceConsent, hint))
 }
 
 func (h *handler) googleCallback(c *gin.Context) {
@@ -274,6 +279,9 @@ func (h *handler) googleCallback(c *gin.Context) {
 	case errors.Is(err, ErrMissingScopes):
 		fail("missing_scopes")
 		return
+	case errors.Is(err, ErrNotGmail):
+		fail("not_gmail")
+		return
 	case errors.Is(err, ErrGoogleAccountMismatch):
 		fail("google_account_mismatch")
 		return
@@ -294,14 +302,25 @@ func (h *handler) googleCallback(c *gin.Context) {
 }
 
 func (h *handler) googleStatus(c *gin.Context) {
-	acc, err := h.svc.tokenSvc.GoogleAccount(CurrentUserID(c))
+	userID := CurrentUserID(c)
+	acc, err := h.svc.tokenSvc.GoogleAccount(userID)
 	if err != nil {
 		slog.Error("auth: google status", "err", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 		return
 	}
-	// bound: email is the only Google account the user can connect, even when disconnected
-	c.JSON(http.StatusOK, gin.H{"connected": acc.Connected, "email": acc.Email, "bound": acc.Sub != ""})
+	email := acc.Email
+	if !acc.Connected {
+		// the sign-up email is the only Gmail the user can connect
+		u, err := h.svc.userSvc.FindByID(userID)
+		if err != nil {
+			slog.Error("auth: google status", "err", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+			return
+		}
+		email = u.Email
+	}
+	c.JSON(http.StatusOK, gin.H{"connected": acc.Connected, "email": email})
 }
 
 func (h *handler) googleDisconnect(c *gin.Context) {

@@ -168,9 +168,6 @@ func (svc *Service) Invalidate(userID uint) error {
 type Account struct {
 	Connected bool
 	Email     string
-	// Sub is the Google account bound to the user on the first connect; it is
-	// kept after a disconnect, so only the same account can be connected again
-	Sub string
 }
 
 // GoogleAccount returns the Google account connected for sending
@@ -179,7 +176,7 @@ func (svc *Service) GoogleAccount(userID uint) (Account, error) {
 	if err != nil || t == nil {
 		return Account{}, err
 	}
-	return Account{Connected: t.Refresh != "", Email: t.GoogleEmail, Sub: t.GoogleSub}, nil
+	return Account{Connected: t.Refresh != "", Email: t.GoogleEmail}, nil
 }
 
 // Disconnect revokes the grant at Google (best effort) and forgets it
