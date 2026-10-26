@@ -58,7 +58,10 @@ func main() {
 
 	trigger := queue.NewTrigger(a.Queue, time.Duration(cfg.DispatchIntervalSeconds)*time.Second)
 	campaignSvc := campaign.NewService(a.Campaigns, a.Subscriptions, a.Tokens, cfg, trigger)
-	sheetsSvc := sheets.NewService(a.Tokens)
+	sheetsSvc := sheets.NewService(a.Tokens, a.Redis.Raw(), sheets.PickerConfig{
+		APIKey: cfg.GooglePickerAPIKey,
+		AppID:  cfg.GoogleProjectNumber,
+	})
 
 	billingSvc := billing.NewService(a.DB, cfg, a.Subscriptions)
 	slog.Info("payment providers", "enabled", billingSvc.Providers())
@@ -74,10 +77,10 @@ func main() {
 				campaign.RegisterRoutes(r, campaignSvc, a.Users, auth.CurrentUserID)
 				campaign.RegisterUnsubscribeRoutes(pub, campaignSvc, cfg.UnsubscribeKey())
 			},
-			func(_, r *gin.RouterGroup) {
+			func(pub, r *gin.RouterGroup) {
 				// trial users add recipients by hand; import is a paid feature
 				paid := r.Group("", subscription.RequirePaid(a.Subscriptions, auth.CurrentUserID))
-				sheets.RegisterRoutes(paid, sheetsSvc, auth.CurrentUserID)
+				sheets.RegisterRoutes(pub, paid, sheetsSvc, auth.CurrentUserID)
 			},
 			func(pub, r *gin.RouterGroup) { billing.RegisterRoutes(pub, r, billingSvc, a.Users, auth.CurrentUserID) },
 		),
