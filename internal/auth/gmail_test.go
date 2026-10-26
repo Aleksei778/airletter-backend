@@ -7,7 +7,10 @@ import (
 	"testing"
 )
 
-func TestIsGmail(t *testing.T) {
+// fakeMX replaces DNS for the test: tests must not depend on real MX records
+// (example.com, for one, has a null MX and is never Gmail)
+func fakeMX(t *testing.T) {
+	t.Helper()
 	lookupMX = func(_ context.Context, domain string) ([]*net.MX, error) {
 		switch domain {
 		case "workspace.example":
@@ -22,6 +25,10 @@ func TestIsGmail(t *testing.T) {
 		return nil, &net.DNSError{Err: "no such host", IsNotFound: true}
 	}
 	t.Cleanup(func() { lookupMX = net.DefaultResolver.LookupMX })
+}
+
+func TestIsGmail(t *testing.T) {
+	fakeMX(t)
 
 	for email, want := range map[string]bool{
 		"ivan@gmail.com":             true,

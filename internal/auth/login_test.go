@@ -39,6 +39,7 @@ func TestHashPasswordLength(t *testing.T) {
 
 func newPasswordService(t *testing.T) (*Service, *fakeTrials) {
 	t.Helper()
+	fakeMX(t)
 	mr := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	trials := &fakeTrials{}
@@ -50,29 +51,33 @@ func TestRegisterAndLogin(t *testing.T) {
 	svc, trials := newPasswordService(t)
 	ctx := context.Background()
 
-	u, err := svc.Register(ctx, RegisterInput{Email: "Ivan@Example.com", Password: "correct horse", Name: "Иван"})
+	u, err := svc.Register(ctx, RegisterInput{Email: "Ivan@Workspace.example", Password: "correct horse", Name: "Иван"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if u.Email != "ivan@example.com" || u.PasswordHash == "correct horse" {
+	if u.Email != "ivan@workspace.example" || u.PasswordHash == "correct horse" {
 		t.Fatalf("user not normalized or password stored in plain text: %+v", u)
 	}
 	if len(trials.created) != 1 {
 		t.Errorf("trial not created on sign-up")
 	}
 
-	if _, err := svc.Register(ctx, RegisterInput{Email: "ivan@example.com", Password: "another one"}); err == nil {
+	if _, err := svc.Register(ctx, RegisterInput{Email: "ivan@workspace.example", Password: "another one"}); err == nil {
 		t.Error("duplicate email registered")
 	}
+	// Airletter sends only from the sign-up address, so it must be a Gmail mailbox
+	if _, err := svc.Register(ctx, RegisterInput{Email: "ivan@yandex.ru", Password: "correct horse"}); !errors.Is(err, ErrNotGmail) {
+		t.Errorf("non-Gmail sign-up: %v, want ErrNotGmail", err)
+	}
 
-	got, err := svc.Login(ctx, "IVAN@example.com", "correct horse", "1.1.1.1")
+	got, err := svc.Login(ctx, "IVAN@workspace.example", "correct horse", "1.1.1.1")
 	if err != nil || got.ID != u.ID {
 		t.Fatalf("login: %v %v", got, err)
 	}
-	if _, err := svc.Login(ctx, "ivan@example.com", "wrong password", "1.1.1.1"); !errors.Is(err, ErrInvalidCredentials) {
+	if _, err := svc.Login(ctx, "ivan@workspace.example", "wrong password", "1.1.1.1"); !errors.Is(err, ErrInvalidCredentials) {
 		t.Errorf("wrong password: %v", err)
 	}
-	if _, err := svc.Login(ctx, "nobody@example.com", "whatever1", "1.1.1.1"); !errors.Is(err, ErrInvalidCredentials) {
+	if _, err := svc.Login(ctx, "nobody@workspace.example", "whatever1", "1.1.1.1"); !errors.Is(err, ErrInvalidCredentials) {
 		t.Errorf("unknown login: %v", err)
 	}
 }
@@ -80,15 +85,15 @@ func TestRegisterAndLogin(t *testing.T) {
 func TestLoginThrottling(t *testing.T) {
 	svc, _ := newPasswordService(t)
 	ctx := context.Background()
-	if _, err := svc.Register(ctx, RegisterInput{Email: "a@example.com", Password: "correct horse"}); err != nil {
+	if _, err := svc.Register(ctx, RegisterInput{Email: "a@gmail.com", Password: "correct horse"}); err != nil {
 		t.Fatal(err)
 	}
 
 	for i := 0; i < maxLoginFails; i++ {
-		_, _ = svc.Login(ctx, "a@example.com", "wrong", "2.2.2.2")
+		_, _ = svc.Login(ctx, "a@gmail.com", "wrong", "2.2.2.2")
 	}
 	// even the right password is refused while blocked
-	if _, err := svc.Login(ctx, "a@example.com", "correct horse", "3.3.3.3"); !errors.Is(err, ErrTooManyAttempts) {
+	if _, err := svc.Login(ctx, "a@gmail.com", "correct horse", "3.3.3.3"); !errors.Is(err, ErrTooManyAttempts) {
 		t.Fatalf("got %v, want ErrTooManyAttempts", err)
 	}
 }
