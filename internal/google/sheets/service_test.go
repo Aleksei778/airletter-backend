@@ -21,10 +21,15 @@ func TestClassify(t *testing.T) {
 		{"not picked", &googleapi.Error{Code: 404, Message: "Requested entity was not found."}, ErrFileAccessRequired},
 		{"no permission", &googleapi.Error{Code: 403, Message: "The caller does not have permission"}, ErrFileAccessRequired},
 		{"scope unchecked", &googleapi.Error{Code: 403, Message: "Request had insufficient authentication scopes."}, tokenmod.ErrNoToken},
+		{"sheets api disabled", &googleapi.Error{Code: 403, Message: "Google Sheets API has not been used in project 123 before or it is disabled."}, nil},
 		{"bad range", &googleapi.Error{Code: 400, Message: "Unable to parse range: Sheet9!A2:A"}, ErrInvalidRange},
 	}
 	for _, c := range cases {
-		if got := classify(c.err); !errors.Is(got, c.want) {
+		got := classify(c.err)
+		if c.want == nil && (errors.Is(got, ErrFileAccessRequired) || errors.Is(got, tokenmod.ErrNoToken)) {
+			t.Errorf("%s: classified as user error: %v", c.name, got)
+		}
+		if c.want != nil && !errors.Is(got, c.want) {
 			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
 		}
 	}

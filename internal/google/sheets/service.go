@@ -83,6 +83,9 @@ func classify(err error) error {
 	// signing in again asks for it
 	case gErr.Code == http.StatusForbidden && insufficientScope(gErr):
 		return fmt.Errorf("sheets: get values: %w: %w", tokenmod.ErrNoToken, err)
+	// our misconfiguration, not the user's: picking the file again won't help
+	case gErr.Code == http.StatusForbidden && serviceDisabled(gErr):
+		return fmt.Errorf("sheets: get values: sheets api is disabled in the cloud project: %w", err)
 	// drive.file answers 404 for files the user has not picked and 403 for
 	// picked files the user can no longer open
 	case gErr.Code == http.StatusNotFound || gErr.Code == http.StatusForbidden:
@@ -100,6 +103,15 @@ func insufficientScope(e *googleapi.Error) bool {
 		}
 	}
 	return strings.Contains(e.Message, "insufficient authentication scopes")
+}
+
+func serviceDisabled(e *googleapi.Error) bool {
+	for _, item := range e.Errors {
+		if item.Reason == "accessNotConfigured" {
+			return true
+		}
+	}
+	return strings.Contains(e.Message, "SERVICE_DISABLED") || strings.Contains(e.Message, "has not been used in project")
 }
 
 func extractEmails(values [][]any) []string {
