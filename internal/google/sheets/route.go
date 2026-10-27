@@ -41,6 +41,7 @@ func RegisterRoutes(pub, r *gin.RouterGroup, svc *Service, userID func(*gin.Cont
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "google access required", "code": "reauth_required"})
 		case errors.Is(err, ErrFileAccessRequired):
 			// the client opens Google Picker and retries
+			slog.Warn("sheets: no access to spreadsheet", "user_id", userID(c), "spreadsheet_id", req.SpreadsheetID, "err", err)
 			c.JSON(http.StatusForbidden, gin.H{"error": "pick the spreadsheet in Google Drive first", "code": "file_access_required"})
 		case errors.Is(err, ErrInvalidRange):
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid sheet name or range"})
