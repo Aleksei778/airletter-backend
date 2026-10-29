@@ -18,10 +18,12 @@ import (
 // Stripe Checkout Sessions: https://docs.stripe.com/api/checkout/sessions
 type Stripe struct {
 	secretKey, webhookSecret, apiURL string
+	client                           *http.Client
 }
 
-func NewStripe(secretKey, webhookSecret, apiURL string) *Stripe {
-	return &Stripe{secretKey: secretKey, webhookSecret: webhookSecret, apiURL: apiURL}
+// NewStripe sends API calls through proxy when it is not nil
+func NewStripe(secretKey, webhookSecret, apiURL string, proxy *url.URL) *Stripe {
+	return &Stripe{secretKey: secretKey, webhookSecret: webhookSecret, apiURL: apiURL, client: proxiedClient(proxy)}
 }
 
 func (s *Stripe) Name() string       { return "stripe" }
@@ -91,7 +93,7 @@ func (s *Stripe) do(ctx context.Context, method, path string, form url.Values, i
 		req.Header.Set("Idempotency-Key", idempotencyKey)
 	}
 
-	resp, err := httpClient.Do(req)
+	resp, err := s.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("stripe: %w", err)
 	}

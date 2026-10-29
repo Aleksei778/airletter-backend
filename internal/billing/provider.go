@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
 	"time"
 )
 
@@ -37,3 +38,13 @@ type Provider interface {
 }
 
 var httpClient = &http.Client{Timeout: 20 * time.Second}
+
+// proxiedClient sends requests through proxy, or is the shared client when proxy is nil
+func proxiedClient(proxy *url.URL) *http.Client {
+	if proxy == nil {
+		return httpClient
+	}
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.Proxy = http.ProxyURL(proxy)
+	return &http.Client{Timeout: httpClient.Timeout, Transport: t}
+}

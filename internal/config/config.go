@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 
 	"github.com/caarlos0/env/v11"
 )
@@ -64,6 +65,9 @@ type Config struct {
 	StripeSecretKey     string `env:"STRIPE_SECRET_KEY"`
 	StripeWebhookSecret string `env:"STRIPE_WEBHOOK_SECRET"`
 	StripeAPIURL        string `env:"STRIPE_API_URL" envDefault:"https://api.stripe.com/v1"`
+	// Stripe refuses requests from some countries; route only its API calls
+	// through a proxy elsewhere, e.g. http://user:pass@host:3128
+	StripeProxyURL *url.URL `env:"STRIPE_PROXY_URL"`
 
 	BuggregatorDSN     string `env:"BUGGREGATOR_DSN"`
 	BuggregatorTCPAddr string `env:"BUGGREGATOR_TCP_ADDR" envDefault:"buggregator:9912"`

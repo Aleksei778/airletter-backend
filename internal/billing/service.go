@@ -39,7 +39,7 @@ func NewService(db *gorm.DB, cfg *config.Config, subs *subscription.Service) *Se
 		s.addProvider(NewYooKassa(cfg.YookassaShopID, cfg.YookassaSecretKey, cfg.YookassaAPIURL))
 	}
 	if cfg.StripeSecretKey != "" {
-		s.addProvider(NewStripe(cfg.StripeSecretKey, cfg.StripeWebhookSecret, cfg.StripeAPIURL))
+		s.addProvider(NewStripe(cfg.StripeSecretKey, cfg.StripeWebhookSecret, cfg.StripeAPIURL, cfg.StripeProxyURL))
 	}
 	return s
 }

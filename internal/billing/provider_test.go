@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 )
@@ -22,7 +23,7 @@ func sign(secret string, ts int64, payload []byte) string {
 }
 
 func TestStripeVerifyWebhook(t *testing.T) {
-	s := NewStripe("sk", "whsec_test", "")
+	s := NewStripe("sk", "whsec_test", "", nil)
 	now := time.Unix(1_800_000_000, 0)
 	payload := []byte(`{"type":"checkout.session.completed","data":{"object":{"id":"cs_123"}}}`)
 
@@ -116,7 +117,7 @@ func TestStripeCheckoutAndStatus(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	s := NewStripe("sk_test", "", srv.URL)
+	s := NewStripe("sk_test", "", srv.URL, nil)
 	co, err := s.CreateCheckout(context.Background(), CheckoutRequest{PaymentID: 9, Amount: 115_20, Currency: USD, Description: "d", ReturnURL: "https://site", Locale: "en"})
 	if err != nil || co.ExternalID != "cs_1" {
 		t.Fatalf("checkout: %+v %v", co, err)
@@ -124,5 +125,23 @@ func TestStripeCheckoutAndStatus(t *testing.T) {
 	st, err := s.Status(context.Background(), "cs_1")
 	if err != nil || st != StatusCanceled {
 		t.Errorf("status: %v %v", st, err)
+	}
+}
+
+func TestStripeProxy(t *testing.T) {
+	var gotHost string
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHost = r.URL.Host // a forward proxy receives the absolute target URL
+		fmt.Fprint(w, `{"id":"cs_1","status":"open","payment_status":"unpaid"}`)
+	}))
+	defer proxy.Close()
+	proxyURL, _ := url.Parse(proxy.URL)
+
+	s := NewStripe("sk_test", "", "http://stripe.invalid/v1", proxyURL)
+	if _, err := s.Status(context.Background(), "cs_1"); err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if gotHost != "stripe.invalid" {
+		t.Errorf("request did not go through the proxy, host %q", gotHost)
 	}
 }
