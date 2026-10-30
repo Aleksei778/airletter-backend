@@ -47,6 +47,9 @@ func (s *Stripe) CreateCheckout(ctx context.Context, req CheckoutRequest) (*Chec
 		"line_items[0][price_data][currency]":    {strings.ToLower(string(req.Currency))},
 		"line_items[0][price_data][unit_amount]": {strconv.FormatInt(req.Amount, 10)},
 		"line_items[0][price_data][product_data][name]": {req.Description},
+		// Managed Payments (on by default for the account) rejects products without a tax code.
+		// txcd_10103001 is "Software as a service (SaaS) - business use".
+		"line_items[0][price_data][product_data][tax_code]": {"txcd_10103001"},
 	}
 	if req.Email != "" {
 		form.Set("customer_email", req.Email)
