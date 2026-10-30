@@ -1,12 +1,14 @@
 # Production stack. Deployed by .github/workflows/ci-cd.yml into DEPLOY_PATH on the server
 # together with .env (APP_IMAGE is appended to .env on deploy).
-# TLS and routing are done by Nginx Proxy Manager on shared_network: forward to airletter-api:8080.
+# TLS and routing are done by the host's nginx (certbot): api.airletter.tech -> 127.0.0.1:8080.
 name: airletter
 services:
   app:
     image: ${APP_IMAGE}
     command: ["api"]
     env_file: .env
+    ports:
+      - "127.0.0.1:8080:8080"
     restart: unless-stopped
     depends_on:
       db:
@@ -19,10 +21,6 @@ services:
       timeout: 3s
       retries: 5
       start_period: 15s
-    networks:
-      default:
-      shared_network:
-        aliases: [airletter-api]
 
   worker:
     image: ${APP_IMAGE}
@@ -71,11 +69,6 @@ services:
     restart: unless-stopped
     depends_on:
       - redis
-
-networks:
-  # created outside this stack: docker network create shared_network
-  shared_network:
-    external: true
 
 volumes:
   postgres_data:
