@@ -36,7 +36,7 @@ func TestTrialFooter(t *testing.T) {
 	}
 
 	frag := buildMessage(&campaign.Campaign{Body: "<p>hi</p>", Branded: true, Locale: "ru"}, "me@gmail.com", "to@example.com", site, "tok")
-	if !strings.HasPrefix(frag.HTML, "<p>hi</p><table") || !strings.Contains(frag.HTML, "Sent with <a") || !strings.Contains(frag.HTML, site+"/ru?") {
+	if !strings.HasPrefix(frag.HTML, "<p>hi</p><table") || !strings.Contains(frag.HTML, "Sent with <a") || !strings.Contains(frag.HTML, ">Unsubscribe from these emails<") || !strings.Contains(frag.HTML, site+"/ru/unsubscribe/tok") || !strings.Contains(frag.HTML, site+"/ru?") {
 		t.Errorf("fragment footer: %q", frag.HTML)
 	}
 
