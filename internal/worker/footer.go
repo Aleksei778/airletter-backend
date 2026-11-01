@@ -8,14 +8,14 @@ import (
 	"airletter/internal/mailer"
 )
 
-// the unsubscribe link follows the sender's interface language
-var unsubscribeText = map[string]string{
-	"ru": "Отписаться от этих писем",
-	"en": "Unsubscribe from these emails",
-}
+// The footer text is always in English; the locale only picks the language
+// of the site pages the links open.
+const (
+	unsubscribe = "Unsubscribe from these emails"
+	sentWith    = "Sent with"
+)
 
-// the branding line is always in English, whatever the locale
-const sentWith = "Sent with"
+var siteLocales = map[string]bool{"ru": true, "en": true}
 
 var closingBody = regexp.MustCompile(`(?i)</body\s*>`)
 
@@ -23,9 +23,8 @@ var closingBody = regexp.MustCompile(`(?i)</body\s*>`)
 // trial campaigns (branded), the "Sent with Airletter" line.
 // In HTML it goes before </body> of a full template, or at the end otherwise.
 func addFooter(m *mailer.Message, locale, siteURL, unsubToken string, branded bool) {
-	unsubscribe, ok := unsubscribeText[locale]
-	if !ok {
-		locale, unsubscribe = "en", unsubscribeText["en"]
+	if !siteLocales[locale] {
+		locale = "en"
 	}
 	unsubLink := fmt.Sprintf("%s/%s/unsubscribe/%s", siteURL, locale, unsubToken)
 	siteLink := fmt.Sprintf("%s/%s?utm_source=email&utm_medium=footer&utm_campaign=trial", siteURL, locale)
