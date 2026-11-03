@@ -29,8 +29,7 @@ func (p Plan) DailyLimit() int {
 	}
 }
 
-// Paid reports whether the plan was bought; paid plans unlock Google Sheets
-// import and send without the Airletter footer
+// Paid reports whether the plan was bought; paid plans unlock Google Sheets import
 func (p Plan) Paid() bool { return p == PlanStandard || p == PlanPremium }
 
 func (p Plan) rank() int {
