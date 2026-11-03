@@ -20,7 +20,7 @@ var siteLocales = map[string]bool{"ru": true, "en": true}
 var closingBody = regexp.MustCompile(`(?i)</body\s*>`)
 
 // addFooter appends the unsubscribe link that every email carries and, for
-// trial campaigns (branded), the "Sent with Airletter" line.
+// branded campaigns, the "Sent with Airletter" line.
 // In HTML it goes before </body> of a full template, or at the end otherwise.
 func addFooter(m *mailer.Message, locale, siteURL, unsubToken string, branded bool) {
 	if !siteLocales[locale] {

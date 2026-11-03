@@ -52,7 +52,7 @@ type Campaign struct {
 	Subject    string     `gorm:"not null"`
 	Body       string     `gorm:"type:text;not null"` // HTML or plain text, see BodyFormat
 	BodyFormat BodyFormat `gorm:"type:varchar(8);not null;default:'html'"`
-	// Branded campaigns (sent on the trial) get the Airletter footer in Locale
+	// Branded campaigns get the "Sent with Airletter" footer in Locale
 	Branded bool   `gorm:"not null;default:false"`
 	Locale  string `gorm:"type:varchar(2);not null;default:'ru'"`
 	// pause between two emails chosen by the sender; 0 means the server default
