@@ -180,12 +180,13 @@ func (s *Service) Create(ctx context.Context, u *user.User, in CreateInput) (*Cr
 	}
 
 	c := &Campaign{
-		UserID:      u.ID,
-		SenderName:  strings.TrimSpace(u.FirstName + " " + u.LastName),
-		Subject:     subject,
-		Body:        in.Body,
-		BodyFormat:  format,
-		Branded:     !sub.Plan.Paid(),
+		UserID:     u.ID,
+		SenderName: strings.TrimSpace(u.FirstName + " " + u.LastName),
+		Subject:    subject,
+		Body:       in.Body,
+		BodyFormat: format,
+		// for now every plan carries the "Sent with Airletter" line
+		Branded:     true,
 		Locale:      locale,
 		Status:      StatusScheduled,
 		ScheduledAt: scheduledAt,
