@@ -188,24 +188,36 @@ func (r *Repository) InFlight(ctx context.Context, userID uint) (int64, error) {
 	return n, err
 }
 
-// ClaimPending atomically marks up to limit pending recipients of the user as queued.
+// Claimed is a recipient taken from pending into the send queue
+type Claimed struct {
+	ID uint
+	// the campaign's pause after this email; 0 means the server default
+	IntervalSeconds int
+}
+
+// ClaimNext atomically marks the user's next pending recipient as queued, in
+// campaign order. ok is false when there is nothing to send.
 // SKIP LOCKED makes it safe to run from several worker instances at once.
-func (r *Repository) ClaimPending(ctx context.Context, userID uint, limit int) ([]uint, error) {
-	var ids []uint
-	err := r.db.WithContext(ctx).Raw(`
-		UPDATE recipients SET status = ?, updated_at = now()
-		WHERE id IN (
-			SELECT r.id FROM recipients r
+func (r *Repository) ClaimNext(ctx context.Context, userID uint) (claimed Claimed, ok bool, err error) {
+	var rows []Claimed
+	err = r.db.WithContext(ctx).Raw(`
+		WITH next AS (
+			SELECT r.id, c.send_interval_seconds FROM recipients r
 			JOIN campaigns c ON c.id = r.campaign_id
 			WHERE r.user_id = ? AND r.status = ? AND c.status = ? AND c.deleted_at IS NULL
 			ORDER BY r.campaign_id, r.id
-			LIMIT ?
+			LIMIT 1
 			FOR UPDATE OF r SKIP LOCKED
 		)
-		RETURNING id`,
-		RecipientQueued, userID, RecipientPending, StatusSending, limit,
-	).Scan(&ids).Error
-	return ids, err
+		UPDATE recipients SET status = ?, updated_at = now()
+		FROM next WHERE recipients.id = next.id
+		RETURNING recipients.id AS id, next.send_interval_seconds AS interval_seconds`,
+		userID, RecipientPending, StatusSending, RecipientQueued,
+	).Scan(&rows).Error
+	if err != nil || len(rows) == 0 {
+		return Claimed{}, false, err
+	}
+	return rows[0], true, nil
 }
 
 // CompleteFinished marks sending campaigns without unsent recipients as completed

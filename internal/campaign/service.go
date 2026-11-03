@@ -57,6 +57,8 @@ type CreateInput struct {
 	Locale string
 	// nil or a time in the past means "send now"
 	ScheduledAt *time.Time
+	// pause between two emails; 0 means the server default
+	SendIntervalSeconds int
 }
 
 type CreateResult struct {
@@ -122,6 +124,11 @@ func (s *Service) Create(ctx context.Context, u *user.User, in CreateInput) (*Cr
 		locale = "ru"
 	}
 
+	interval, err := SendInterval(in.SendIntervalSeconds, s.cfg)
+	if err != nil {
+		return nil, err
+	}
+
 	emails, skipped := NormalizeRecipients(in.Recipients)
 	if len(emails) == 0 {
 		return nil, invalid("no valid recipients")
@@ -180,17 +187,18 @@ func (s *Service) Create(ctx context.Context, u *user.User, in CreateInput) (*Cr
 	}
 
 	c := &Campaign{
-		UserID:      u.ID,
-		SenderName:  strings.TrimSpace(u.FirstName + " " + u.LastName),
-		Subject:     subject,
-		Body:        in.Body,
-		BodyFormat:  format,
-		Branded:     !sub.Plan.Paid(),
-		Locale:      locale,
-		Status:      StatusScheduled,
-		ScheduledAt: scheduledAt,
-		Recipients:  recipients,
-		Attachments: attachments,
+		UserID:              u.ID,
+		SenderName:          strings.TrimSpace(u.FirstName + " " + u.LastName),
+		Subject:             subject,
+		Body:                in.Body,
+		BodyFormat:          format,
+		Branded:             !sub.Plan.Paid(),
+		Locale:              locale,
+		SendIntervalSeconds: interval,
+		Status:              StatusScheduled,
+		ScheduledAt:         scheduledAt,
+		Recipients:          recipients,
+		Attachments:         attachments,
 	}
 	if err := s.repo.Create(ctx, c); err != nil {
 		return nil, fmt.Errorf("campaign: create: %w", err)
@@ -202,6 +210,18 @@ func (s *Service) Create(ctx context.Context, u *user.User, in CreateInput) (*Cr
 	}
 
 	return &CreateResult{Campaign: c, Skipped: skipped, Unsubscribed: unsubscribed}, nil
+}
+
+// SendInterval checks the pause between emails the sender asked for:
+// 0 means the server default, otherwise it must be within the allowed range
+func SendInterval(requested int, cfg *config.Config) (int, error) {
+	if requested == 0 {
+		return cfg.SendIntervalSeconds, nil
+	}
+	if requested < cfg.SendIntervalSeconds || requested > cfg.MaxSendIntervalSeconds {
+		return 0, invalid("send_interval_seconds must be between %d and %d", cfg.SendIntervalSeconds, cfg.MaxSendIntervalSeconds)
+	}
+	return requested, nil
 }
 
 // NormalizeRecipients lowercases, validates and de-duplicates emails.

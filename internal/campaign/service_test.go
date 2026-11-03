@@ -5,6 +5,8 @@ import (
 	"slices"
 	"testing"
 	"time"
+
+	"airletter/internal/config"
 )
 
 func TestNormalizeRecipients(t *testing.T) {
@@ -60,6 +62,33 @@ func TestUnsubscribeToken(t *testing.T) {
 	for _, bad := range []string{"", "abc", forged, tok + "A"} {
 		if _, err := ParseUnsubscribeToken(key, bad); !errors.Is(err, ErrInvalidToken) {
 			t.Errorf("%q: %v", bad, err)
+		}
+	}
+}
+
+func TestSendInterval(t *testing.T) {
+	cfg := &config.Config{SendIntervalSeconds: 3, MaxSendIntervalSeconds: 3600}
+	tests := []struct {
+		requested int
+		want      int
+		ok        bool
+	}{
+		{requested: 0, want: 3, ok: true},
+		{requested: 3, want: 3, ok: true},
+		{requested: 90, want: 90, ok: true},
+		{requested: 3600, want: 3600, ok: true},
+		{requested: 2, ok: false},
+		{requested: -5, ok: false},
+		{requested: 3601, ok: false},
+	}
+	for _, tt := range tests {
+		got, err := SendInterval(tt.requested, cfg)
+		var vErr *ValidationError
+		if tt.ok && (err != nil || got != tt.want) {
+			t.Errorf("SendInterval(%d) = %d, %v; want %d", tt.requested, got, err, tt.want)
+		}
+		if !tt.ok && !errors.As(err, &vErr) {
+			t.Errorf("SendInterval(%d) error = %v; want ValidationError", tt.requested, err)
 		}
 	}
 }

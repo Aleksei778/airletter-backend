@@ -55,6 +55,25 @@ func (c *Client) IncrDailySentCount(ctx context.Context, userID uint) error {
 	return nil
 }
 
+// NextSendAt is when the user's next email may go out; zero if not set
+func (c *Client) NextSendAt(ctx context.Context, userID uint) (time.Time, error) {
+	ms, err := c.rdb.Get(ctx, nextSendKey(userID)).Int64()
+	if errors.Is(err, redis.Nil) {
+		return time.Time{}, nil
+	}
+	if err != nil {
+		return time.Time{}, err
+	}
+	return time.UnixMilli(ms).UTC(), nil
+}
+
+// SetNextSendAt stores when the user's next email may go out. The key lives
+// a bit past that moment: once it expires, sending may start right away.
+func (c *Client) SetNextSendAt(ctx context.Context, userID uint, at time.Time) error {
+	ttl := time.Until(at) + time.Hour
+	return c.rdb.Set(ctx, nextSendKey(userID), at.UnixMilli(), ttl).Err()
+}
+
 // Raw exposes the underlying client for other Redis-backed stores
 func (c *Client) Raw() *redis.Client {
 	return c.rdb
@@ -66,4 +85,8 @@ func (c *Client) Close() error {
 
 func dailyKey(userID uint) string {
 	return fmt.Sprintf("user:sent:%d:%s", userID, time.Now().UTC().Format("2006-01-02"))
+}
+
+func nextSendKey(userID uint) string {
+	return fmt.Sprintf("user:next_send:%d", userID)
 }
