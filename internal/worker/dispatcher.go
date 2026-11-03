@@ -22,12 +22,15 @@ const staleAfter = time.Hour
 
 // Dispatcher handles campaign:dispatch. On every run it:
 //  1. starts scheduled campaigns whose time has come
-//  2. per user, releases a small batch of pending recipients into the send
-//     queue, spaced by SendInterval, never exceeding the plan's daily limit
+//  2. per user, releases into the send queue the pending recipients whose
+//     turn comes before the next run, never exceeding the plan's daily limit
 //  3. marks campaigns without unsent recipients as completed
 //
-// Releasing per user in small batches keeps one big campaign from blocking
-// other users and paces sending so Gmail does not flag the account.
+// Emails of one user are spaced by the pause of the campaign each belongs
+// to (at least SendInterval) plus jitter, so Gmail does not flag the account.
+// The moment the next email may go out is kept in Redis between runs, so a
+// pause longer than the dispatch period is kept too. Releasing only what fits
+// before the next run keeps one big campaign from blocking other users.
 type Dispatcher struct {
 	campaigns *campaign.Repository
 	subs      *subscription.Service
@@ -91,22 +94,41 @@ func (d *Dispatcher) dispatchUser(ctx context.Context, userID uint) error {
 	}
 
 	// Remaining pending recipients simply wait for tomorrow once the limit is hit
-	budget := min(
-		sub.Plan.DailyLimit()-sentToday-int(inFlight),
-		d.perRun()-int(inFlight),
-	)
+	budget := sub.Plan.DailyLimit() - sentToday - int(inFlight)
 	if budget <= 0 {
 		return nil
 	}
 
-	ids, err := d.campaigns.ClaimPending(ctx, userID, budget)
+	now := time.Now().UTC()
+	slot, err := d.redis.NextSendAt(ctx, userID)
 	if err != nil {
-		return fmt.Errorf("claim: %w", err)
+		return fmt.Errorf("next send: %w", err)
+	}
+	slot = later(slot, now)
+	horizon := now.Add(time.Duration(d.cfg.DispatchIntervalSeconds) * time.Second)
+	if !slot.Before(horizon) {
+		return nil
 	}
 
-	var delay time.Duration
-	for _, id := range ids {
-		task, err := queue.NewSendEmailTask(id, d.cfg.SendMaxRetries, delay)
+	start := slot
+	defer func() {
+		if !slot.Equal(start) {
+			if err := d.redis.SetNextSendAt(ctx, userID, slot); err != nil {
+				slog.Error("dispatch: save next send", "err", err, "user_id", userID)
+			}
+		}
+	}()
+
+	for ; budget > 0 && slot.Before(horizon); budget-- {
+		next, ok, err := d.campaigns.ClaimNext(ctx, userID)
+		if err != nil {
+			return fmt.Errorf("claim: %w", err)
+		}
+		if !ok {
+			return nil
+		}
+
+		task, err := queue.NewSendEmailTask(next.ID, d.cfg.SendMaxRetries, slot.Sub(now))
 		if err != nil {
 			return err
 		}
@@ -114,24 +136,29 @@ func (d *Dispatcher) dispatchUser(ctx context.Context, userID uint) error {
 		_, err = d.client.EnqueueContext(ctx, task)
 		if err != nil && !errors.Is(err, asynq.ErrTaskIDConflict) {
 			// the recipient stays "queued" and is reset by ResetStale later
-			return fmt.Errorf("enqueue recipient %d: %w", id, err)
+			return fmt.Errorf("enqueue recipient %d: %w", next.ID, err)
 		}
 
-		delay += d.interval()
+		slot = slot.Add(d.interval(next.IntervalSeconds))
 	}
 
 	return nil
 }
 
-// perRun is how many emails of one user fit into one dispatch period
-func (d *Dispatcher) perRun() int {
-	return max(1, d.cfg.DispatchIntervalSeconds/max(1, d.cfg.SendIntervalSeconds))
-}
-
-func (d *Dispatcher) interval() time.Duration {
+// interval is the pause after an email of a campaign that asked for
+// campaignSeconds (0: the default), never shorter than SendInterval
+func (d *Dispatcher) interval(campaignSeconds int) time.Duration {
+	seconds := max(campaignSeconds, d.cfg.SendIntervalSeconds)
 	jitter := time.Duration(0)
 	if d.cfg.SendJitterSeconds > 0 {
 		jitter = time.Duration(rand.Int64N(int64(d.cfg.SendJitterSeconds) * int64(time.Second)))
 	}
-	return time.Duration(d.cfg.SendIntervalSeconds)*time.Second + jitter
+	return time.Duration(seconds)*time.Second + jitter
+}
+
+func later(a, b time.Time) time.Time {
+	if a.After(b) {
+		return a
+	}
+	return b
 }

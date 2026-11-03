@@ -57,6 +57,8 @@ type CreateInput struct {
 	Locale string
 	// nil or a time in the past means "send now"
 	ScheduledAt *time.Time
+	// pause between two emails; 0 means the server default
+	SendIntervalSeconds int
 }
 
 type CreateResult struct {
@@ -120,6 +122,11 @@ func (s *Service) Create(ctx context.Context, u *user.User, in CreateInput) (*Cr
 	locale := "en"
 	if in.Locale == "ru" {
 		locale = "ru"
+	}
+
+	interval, err := SendInterval(in.SendIntervalSeconds, s.cfg)
+	if err != nil {
+		return nil, err
 	}
 
 	emails, skipped := NormalizeRecipients(in.Recipients)
@@ -186,12 +193,13 @@ func (s *Service) Create(ctx context.Context, u *user.User, in CreateInput) (*Cr
 		Body:       in.Body,
 		BodyFormat: format,
 		// for now every plan carries the "Sent with Airletter" line
-		Branded:     true,
-		Locale:      locale,
-		Status:      StatusScheduled,
-		ScheduledAt: scheduledAt,
-		Recipients:  recipients,
-		Attachments: attachments,
+		Branded:             true,
+		Locale:              locale,
+		SendIntervalSeconds: interval,
+		Status:              StatusScheduled,
+		ScheduledAt:         scheduledAt,
+		Recipients:          recipients,
+		Attachments:         attachments,
 	}
 	if err := s.repo.Create(ctx, c); err != nil {
 		return nil, fmt.Errorf("campaign: create: %w", err)
@@ -203,6 +211,18 @@ func (s *Service) Create(ctx context.Context, u *user.User, in CreateInput) (*Cr
 	}
 
 	return &CreateResult{Campaign: c, Skipped: skipped, Unsubscribed: unsubscribed}, nil
+}
+
+// SendInterval checks the pause between emails the sender asked for:
+// 0 means the server default, otherwise it must be within the allowed range
+func SendInterval(requested int, cfg *config.Config) (int, error) {
+	if requested == 0 {
+		return cfg.SendIntervalSeconds, nil
+	}
+	if requested < cfg.SendIntervalSeconds || requested > cfg.MaxSendIntervalSeconds {
+		return 0, invalid("send_interval_seconds must be between %d and %d", cfg.SendIntervalSeconds, cfg.MaxSendIntervalSeconds)
+	}
+	return requested, nil
 }
 
 // NormalizeRecipients lowercases, validates and de-duplicates emails.

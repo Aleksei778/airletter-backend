@@ -53,15 +53,17 @@ type Campaign struct {
 	Body       string     `gorm:"type:text;not null"` // HTML or plain text, see BodyFormat
 	BodyFormat BodyFormat `gorm:"type:varchar(8);not null;default:'html'"`
 	// Branded campaigns get the "Sent with Airletter" footer in Locale
-	Branded     bool      `gorm:"not null;default:false"`
-	Locale      string    `gorm:"type:varchar(2);not null;default:'ru'"`
-	Status      Status    `gorm:"type:varchar(16);not null;index"`
-	PauseReason string    `gorm:"type:varchar(32)"`
-	ScheduledAt time.Time `gorm:"not null;index"`
-	StartedAt   *time.Time
-	FinishedAt  *time.Time
-	Recipients  []Recipient  `gorm:"foreignKey:CampaignID"`
-	Attachments []Attachment `gorm:"foreignKey:CampaignID"`
+	Branded bool   `gorm:"not null;default:false"`
+	Locale  string `gorm:"type:varchar(2);not null;default:'ru'"`
+	// pause between two emails chosen by the sender; 0 means the server default
+	SendIntervalSeconds int       `gorm:"not null;default:0"`
+	Status              Status    `gorm:"type:varchar(16);not null;index"`
+	PauseReason         string    `gorm:"type:varchar(32)"`
+	ScheduledAt         time.Time `gorm:"not null;index"`
+	StartedAt           *time.Time
+	FinishedAt          *time.Time
+	Recipients          []Recipient  `gorm:"foreignKey:CampaignID"`
+	Attachments         []Attachment `gorm:"foreignKey:CampaignID"`
 }
 
 type Recipient struct {

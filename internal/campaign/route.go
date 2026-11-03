@@ -40,31 +40,36 @@ type createRequest struct {
 	Date        string     `json:"date"`
 	Time        string     `json:"time"`
 	Timezone    string     `json:"timezone"`
+
+	// pause between two emails in seconds; 0 or missing means the server default
+	SendIntervalSeconds int `json:"send_interval_seconds"`
 }
 
 type campaignResponse struct {
-	ID          uint       `json:"id"`
-	Subject     string     `json:"subject"`
-	Status      Status     `json:"status"`
-	PauseReason string     `json:"pause_reason,omitempty"`
-	ScheduledAt time.Time  `json:"scheduled_at"`
-	StartedAt   *time.Time `json:"started_at"`
-	FinishedAt  *time.Time `json:"finished_at"`
-	CreatedAt   time.Time  `json:"created_at"`
-	Stats       Stats      `json:"stats"`
+	ID                  uint       `json:"id"`
+	Subject             string     `json:"subject"`
+	Status              Status     `json:"status"`
+	PauseReason         string     `json:"pause_reason,omitempty"`
+	ScheduledAt         time.Time  `json:"scheduled_at"`
+	SendIntervalSeconds int        `json:"send_interval_seconds"`
+	StartedAt           *time.Time `json:"started_at"`
+	FinishedAt          *time.Time `json:"finished_at"`
+	CreatedAt           time.Time  `json:"created_at"`
+	Stats               Stats      `json:"stats"`
 }
 
 func toResponse(c WithStats) campaignResponse {
 	return campaignResponse{
-		ID:          c.ID,
-		Subject:     c.Subject,
-		Status:      c.Status,
-		PauseReason: c.PauseReason,
-		ScheduledAt: c.ScheduledAt,
-		StartedAt:   c.StartedAt,
-		FinishedAt:  c.FinishedAt,
-		CreatedAt:   c.CreatedAt,
-		Stats:       c.Stats,
+		ID:                  c.ID,
+		Subject:             c.Subject,
+		Status:              c.Status,
+		PauseReason:         c.PauseReason,
+		ScheduledAt:         c.ScheduledAt,
+		SendIntervalSeconds: c.SendIntervalSeconds,
+		StartedAt:           c.StartedAt,
+		FinishedAt:          c.FinishedAt,
+		CreatedAt:           c.CreatedAt,
+		Stats:               c.Stats,
 	}
 }
 
@@ -99,7 +104,7 @@ func (h *handler) create(c *gin.Context) {
 		return
 	}
 
-	in := CreateInput{Subject: req.Subject, Body: req.Body, Format: BodyFormat(req.Format), Locale: req.Locale, Recipients: req.Recipients}
+	in := CreateInput{Subject: req.Subject, Body: req.Body, Format: BodyFormat(req.Format), Locale: req.Locale, Recipients: req.Recipients, SendIntervalSeconds: req.SendIntervalSeconds}
 
 	for _, a := range append(req.Attachments, req.Files...) {
 		content, err := base64.StdEncoding.DecodeString(a.Content)

@@ -24,9 +24,12 @@ type Config struct {
 	// Queue (asynq)
 	WorkerConcurrency int `env:"WORKER_CONCURRENCY" envDefault:"10"`
 	SendMaxRetries    int `env:"SEND_MAX_RETRIES" envDefault:"5"`
-	// Pause between two emails of the same user, plus random jitter up to SendJitterSeconds
-	SendIntervalSeconds int `env:"SEND_INTERVAL_SECONDS" envDefault:"3"`
-	SendJitterSeconds   int `env:"SEND_JITTER_SECONDS" envDefault:"2"`
+	// Pause between two emails of the same user, plus random jitter up to
+	// SendJitterSeconds. A campaign may ask for a longer pause (up to
+	// MaxSendIntervalSeconds) but never a shorter one.
+	SendIntervalSeconds    int `env:"SEND_INTERVAL_SECONDS" envDefault:"3"`
+	MaxSendIntervalSeconds int `env:"MAX_SEND_INTERVAL_SECONDS" envDefault:"3600"`
+	SendJitterSeconds      int `env:"SEND_JITTER_SECONDS" envDefault:"2"`
 	// How often the dispatcher releases pending recipients into the queue
 	DispatchIntervalSeconds int `env:"DISPATCH_INTERVAL_SECONDS" envDefault:"30"`
 	// Max recipients in a single campaign
